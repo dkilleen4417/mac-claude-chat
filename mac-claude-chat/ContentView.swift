@@ -299,6 +299,7 @@ struct ContentView: View {
                     }
                     .padding()
                 }
+                .scrollDismissesKeyboard(.interactively)
                 .onChange(of: messages.count) { _, _ in
                     if let lastMessage = messages.last {
                         withAnimation {
