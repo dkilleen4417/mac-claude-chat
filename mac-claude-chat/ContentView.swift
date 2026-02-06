@@ -569,6 +569,36 @@ struct ContentView: View {
     
     private var chatView: some View {
         VStack(spacing: 0) {
+            // Header bar
+            HStack {
+                Image(systemName: "bubble.left.and.bubble.right.fill")
+                    .font(.title2)
+                    .foregroundStyle(.blue)
+                
+                Text("Mac Claude Chat")
+                    .font(.headline)
+                
+                Text("•")
+                    .foregroundStyle(.secondary)
+                
+                Text("\(selectedModel.emoji) \(selectedModel.displayName)")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                
+                Spacer()
+                
+                if let chatName = selectedChat {
+                    Text(chatName)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(Color(nsColor: .windowBackgroundColor).opacity(0.8))
+            
+            Divider()
+            
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(spacing: 16) {
@@ -722,7 +752,7 @@ struct ContentView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
         }
-        .navigationTitle(selectedChat ?? "Select a chat")
+        .toolbar(.hidden, for: .windowToolbar)
     }
     
     // MARK: - Database Operations
