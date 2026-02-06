@@ -8,6 +8,26 @@
 import SwiftUI
 import SwiftData
 
+// MARK: - Platform Colors
+
+enum PlatformColor {
+    static var windowBackground: Color {
+        #if os(macOS)
+        Color(nsColor: .windowBackgroundColor)
+        #else
+        Color(.systemBackground)
+        #endif
+    }
+    
+    static var textBackground: Color {
+        #if os(macOS)
+        Color(nsColor: .textBackgroundColor)
+        #else
+        Color(.secondarySystemBackground)
+        #endif
+    }
+}
+
 struct ContentView: View {
     @State private var selectedChat: String? = "Scratch Pad"
     @State private var messageText: String = ""
@@ -221,7 +241,7 @@ struct ContentView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
-            .background(Color(nsColor: .windowBackgroundColor).opacity(0.8))
+            .background(PlatformColor.windowBackground.opacity(0.8))
             
             Divider()
             
@@ -317,7 +337,9 @@ struct ContentView: View {
                             .font(.caption)
                             .foregroundStyle(.blue)
                     }
+                    #if os(macOS)
                     .menuStyle(.borderlessButton)
+                    #endif
                     .fixedSize()
                     
                     Text("•")
@@ -365,7 +387,7 @@ struct ContentView: View {
                     .textFieldStyle(.plain)
                     .lineLimit(1...10)
                     .padding(10)
-                    .background(Color(nsColor: .textBackgroundColor))
+                    .background(PlatformColor.textBackground)
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                     .overlay(
                         RoundedRectangle(cornerRadius: 8)
@@ -839,7 +861,7 @@ struct CodeBlockView: View {
                     .padding(8)
             }
         }
-        .background(Color(nsColor: .textBackgroundColor).opacity(0.8))
+        .background(PlatformColor.textBackground.opacity(0.8))
         .overlay(
             RoundedRectangle(cornerRadius: 8)
                 .stroke(Color.gray.opacity(0.3), lineWidth: 1)
@@ -850,5 +872,7 @@ struct CodeBlockView: View {
 
 #Preview {
     ContentView()
+        #if os(macOS)
         .frame(width: 900, height: 600)
+        #endif
 }
