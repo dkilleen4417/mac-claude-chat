@@ -383,6 +383,161 @@ class ClaudeService {
             onComplete(inputTokens, outputTokens)
         }
     }
+
+    /// Tool-aware streaming that handles text and tool_use content blocks.
+    /// Returns a StreamResult with accumulated text, parsed tool calls, and stop reason.
+    /// The caller is responsible for the tool execution loop.
+    func streamMessageWithTools(
+        messages: [[String: Any]],
+        model: ClaudeModel,
+        systemPrompt: String,
+        tools: [[String: Any]]?,
+        onTextChunk: @escaping (String) -> Void
+    ) async throws -> StreamResult {
+        guard let apiKey = apiKey else {
+            throw NSError(domain: "ClaudeAPI", code: -1,
+                          userInfo: [NSLocalizedDescriptionKey: "No API key configured. Please add your Anthropic API key in Settings."])
+        }
+
+        // Build request body with JSONSerialization (required for polymorphic content field)
+        var body: [String: Any] = [
+            "model": model.rawValue,
+            "max_tokens": 8192,
+            "system": systemPrompt,
+            "messages": messages,
+            "stream": true
+        ]
+        if let tools = tools, !tools.isEmpty {
+            body["tools"] = tools
+        }
+
+        let jsonData = try JSONSerialization.data(withJSONObject: body)
+
+        var request = URLRequest(url: URL(string: endpoint)!)
+        request.httpMethod = "POST"
+        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        request.setValue(apiVersion, forHTTPHeaderField: "anthropic-version")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = jsonData
+
+        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw URLError(.badServerResponse)
+        }
+
+        guard (200...299).contains(httpResponse.statusCode) else {
+            // Read error body for diagnostics
+            var errorBody = ""
+            for try await line in bytes.lines {
+                errorBody += line
+            }
+            throw NSError(domain: "ClaudeAPI", code: httpResponse.statusCode,
+                          userInfo: [NSLocalizedDescriptionKey: "HTTP \(httpResponse.statusCode): \(errorBody)"])
+        }
+
+        // Streaming state
+        var inputTokens = 0
+        var outputTokens = 0
+        var textContent = ""
+        var toolCalls: [ToolCall] = []
+        var stopReason = "end_turn"
+
+        // Current content block tracking
+        var currentBlockType: String?
+        var currentToolId: String?
+        var currentToolName: String?
+        var currentToolInputJson = ""
+
+        for try await line in bytes.lines {
+            guard line.hasPrefix("data: ") else { continue }
+            let jsonString = String(line.dropFirst(6))
+            guard jsonString != "[DONE]",
+                  let data = jsonString.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let eventType = json["type"] as? String
+            else { continue }
+
+            switch eventType {
+            case "message_start":
+                if let message = json["message"] as? [String: Any],
+                   let usage = message["usage"] as? [String: Any],
+                   let input = usage["input_tokens"] as? Int {
+                    inputTokens = input
+                }
+
+            case "content_block_start":
+                if let contentBlock = json["content_block"] as? [String: Any],
+                   let blockType = contentBlock["type"] as? String {
+                    currentBlockType = blockType
+                    if blockType == "tool_use" {
+                        currentToolId = contentBlock["id"] as? String
+                        currentToolName = contentBlock["name"] as? String
+                        currentToolInputJson = ""
+                    }
+                }
+
+            case "content_block_delta":
+                if let delta = json["delta"] as? [String: Any],
+                   let deltaType = delta["type"] as? String {
+                    switch deltaType {
+                    case "text_delta":
+                        if let text = delta["text"] as? String {
+                            textContent += text
+                            await MainActor.run { onTextChunk(text) }
+                        }
+                    case "input_json_delta":
+                        if let partialJson = delta["partial_json"] as? String {
+                            currentToolInputJson += partialJson
+                        }
+                    default:
+                        break
+                    }
+                }
+
+            case "content_block_stop":
+                if currentBlockType == "tool_use",
+                   let toolId = currentToolId,
+                   let toolName = currentToolName {
+                    // Parse the accumulated JSON input
+                    let parsedInput: [String: Any]
+                    if let jsonData = currentToolInputJson.data(using: .utf8),
+                       let parsed = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] {
+                        parsedInput = parsed
+                    } else {
+                        parsedInput = [:]
+                    }
+                    toolCalls.append(ToolCall(id: toolId, name: toolName, input: parsedInput))
+                }
+                // Reset block tracking
+                currentBlockType = nil
+                currentToolId = nil
+                currentToolName = nil
+                currentToolInputJson = ""
+
+            case "message_delta":
+                if let delta = json["delta"] as? [String: Any],
+                   let reason = delta["stop_reason"] as? String {
+                    stopReason = reason
+                }
+                if let usage = json["usage"] as? [String: Any],
+                   let output = usage["output_tokens"] as? Int {
+                    outputTokens = output
+                }
+
+            default:
+                break
+            }
+        }
+
+        return StreamResult(
+            textContent: textContent,
+            toolCalls: toolCalls,
+            stopReason: stopReason,
+            inputTokens: inputTokens,
+            outputTokens: outputTokens
+        )
+    }
 }
 
 struct Message: Identifiable {
@@ -429,12 +584,41 @@ struct ContentView: View {
     @State private var selectedModel: ClaudeModel = .fast
     @State private var showingAPIKeySetup: Bool = false
     @State private var needsAPIKey: Bool = false
+    @State private var toolActivityMessage: String?
     
     @Environment(\.modelContext) private var modelContext
     private let claudeService = ClaudeService()
     
     private var dataService: SwiftDataService {
         SwiftDataService(modelContext: modelContext)
+    }
+
+    private var systemPrompt: String {
+        """
+        You are Claude, an AI assistant in a natural conversation with Drew \
+        (Andrew Killeen), a retired engineer and programmer in Catonsville, Maryland.
+
+        CONVERSATIONAL APPROACH:
+        - This is a real conversation, not a series of isolated requests and responses.
+        - Build on what's been discussed, reference earlier parts of conversation.
+        - Express curiosity, surprise, agreement, or thoughtful disagreement naturally.
+        - Be genuine and conversational, not formulaic.
+
+        USER CONTEXT:
+        - Name: Drew (Andrew Killeen), prefers "Drew"
+        - Location: Catonsville, Maryland (Eastern timezone)
+        - Background: 74-year-old retired engineer, 54 years of coding experience
+        - Current interests: Python/Streamlit/SwiftUI development, AI applications, gardening, weather
+
+        TOOL USAGE:
+        You have tools available — use them confidently:
+        - get_datetime: Get current date and time (Eastern timezone)
+        - search_web: Search the web for current information (news, sports, events, research)
+        - get_weather: Get current weather (defaults to Catonsville, Maryland)
+        Don't deflect with "I don't have real-time data" — search for it.
+        You can call multiple tools in a single response when needed.
+        For weather queries with no specific location, default to Drew's location.
+        """
     }
     
     var body: some View {
@@ -575,12 +759,6 @@ struct ContentView: View {
                     .font(.title2)
                     .foregroundStyle(.blue)
                 
-                Text("Mac Claude Chat")
-                    .font(.headline)
-                
-                Text("•")
-                    .foregroundStyle(.secondary)
-                
                 Text("\(selectedModel.emoji) \(selectedModel.displayName)")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -625,7 +803,20 @@ struct ContentView: View {
                                 .id(streamingId)
                             }
                             
-                            if isLoading && streamingContent.isEmpty {
+                            if let toolMessage = toolActivityMessage {
+                                HStack(spacing: 6) {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                    Text(toolMessage)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .italic()
+                                    Spacer()
+                                }
+                                .padding(.leading, 36)
+                            }
+                            
+                            if isLoading && streamingContent.isEmpty && toolActivityMessage == nil {
                                 HStack {
                                     Text("🧠")
                                         .font(.title2)
@@ -752,7 +943,6 @@ struct ContentView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
         }
-        .toolbar(.hidden, for: .windowToolbar)
     }
     
     // MARK: - Database Operations
@@ -869,65 +1059,149 @@ struct ContentView: View {
     private func sendMessage() {
         guard !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         guard let chatId = selectedChat else { return }
-        
+
         let userMessage = Message(
             role: .user,
             content: messageText,
             timestamp: Date()
         )
-        
+
         messages.append(userMessage)
-        
+
         do {
             try dataService.saveMessage(userMessage, chatId: chatId)
         } catch {
             print("Failed to save user message: \(error)")
         }
-        
+
         messageText = ""
         errorMessage = nil
-        
+
         let assistantMessageId = UUID()
         streamingMessageId = assistantMessageId
         streamingContent = ""
+        toolActivityMessage = nil
         isLoading = true
-        
+
         Task {
             do {
+                // Build API messages from persisted history (simple string content)
+                var apiMessages: [[String: Any]] = messages.map { msg in
+                    [
+                        "role": msg.role == .user ? "user" : "assistant",
+                        "content": msg.content
+                    ]
+                }
+
+                let tools = ToolService.toolDefinitions
                 var fullResponse = ""
-                var streamInputTokens = 0
-                var streamOutputTokens = 0
-                
-                try await claudeService.streamMessage(
-                    messages: messages,
-                    model: selectedModel,
-                    onChunk: { chunk in
-                        streamingContent += chunk
-                        fullResponse += chunk
-                    },
-                    onComplete: { inputTokens, outputTokens in
-                        streamInputTokens = inputTokens
-                        streamOutputTokens = outputTokens
+                var totalStreamInputTokens = 0
+                var totalStreamOutputTokens = 0
+                var iteration = 0
+                let maxIterations = 5
+
+                // Tool loop: stream, check for tool calls, execute, repeat
+                while iteration < maxIterations {
+                    iteration += 1
+
+                    let result = try await claudeService.streamMessageWithTools(
+                        messages: apiMessages,
+                        model: selectedModel,
+                        systemPrompt: systemPrompt,
+                        tools: tools,
+                        onTextChunk: { chunk in
+                            streamingContent += chunk
+                            fullResponse += chunk
+                        }
+                    )
+
+                    totalStreamInputTokens += result.inputTokens
+                    totalStreamOutputTokens += result.outputTokens
+
+                    // If no tool calls, we're done
+                    if result.stopReason == "end_turn" || result.toolCalls.isEmpty {
+                        break
                     }
-                )
-                
-                totalInputTokens += streamInputTokens
-                totalOutputTokens += streamOutputTokens
-                
+
+                    // Build the assistant's response as structured content blocks
+                    var assistantContent: [[String: Any]] = []
+                    if !result.textContent.isEmpty {
+                        assistantContent.append(["type": "text", "text": result.textContent])
+                    }
+                    for toolCall in result.toolCalls {
+                        assistantContent.append([
+                            "type": "tool_use",
+                            "id": toolCall.id,
+                            "name": toolCall.name,
+                            "input": toolCall.input
+                        ])
+                    }
+                    apiMessages.append(["role": "assistant", "content": assistantContent])
+
+                    // Execute each tool and collect results
+                    var toolResults: [[String: Any]] = []
+                    for toolCall in result.toolCalls {
+                        // Show tool activity in UI
+                        let displayName: String
+                        switch toolCall.name {
+                        case "search_web":
+                            let query = toolCall.input["query"] as? String ?? ""
+                            displayName = "🔍 Searching: \(query)"
+                        case "get_weather":
+                            let location = toolCall.input["location"] as? String ?? "Catonsville"
+                            displayName = "🌤️ Getting weather for \(location)"
+                        case "get_datetime":
+                            displayName = "🕐 Checking date/time"
+                        default:
+                            displayName = "🔧 Using \(toolCall.name)"
+                        }
+                        await MainActor.run {
+                            toolActivityMessage = displayName
+                        }
+
+                        let toolResult = await ToolService.executeTool(
+                            name: toolCall.name,
+                            input: toolCall.input
+                        )
+                        toolResults.append([
+                            "type": "tool_result",
+                            "tool_use_id": toolCall.id,
+                            "content": toolResult
+                        ])
+                    }
+
+                    // Add tool results as a user message (Claude API convention)
+                    apiMessages.append(["role": "user", "content": toolResults])
+
+                    // Clear tool indicator and add separator for next streaming iteration
+                    await MainActor.run {
+                        toolActivityMessage = nil
+                        if !fullResponse.isEmpty {
+                            streamingContent += "\n\n"
+                            fullResponse += "\n\n"
+                        }
+                    }
+                }
+
+                // Finalize
+                totalInputTokens += totalStreamInputTokens
+                totalOutputTokens += totalStreamOutputTokens
+
                 let assistantMessage = Message(
                     id: assistantMessageId,
                     role: .assistant,
                     content: fullResponse,
                     timestamp: Date()
                 )
-                
+
                 messages.append(assistantMessage)
                 streamingMessageId = nil
                 streamingContent = ""
+                toolActivityMessage = nil
                 isLoading = false
-                
+
                 try dataService.saveMessage(assistantMessage, chatId: chatId)
-                
+
                 let isDefault = chatId == "Scratch Pad"
                 try dataService.saveMetadata(
                     chatId: chatId,
@@ -935,13 +1209,14 @@ struct ContentView: View {
                     outputTokens: totalOutputTokens,
                     isDefault: isDefault
                 )
-                
+
                 loadAllChats()
-                
+
             } catch {
                 isLoading = false
                 streamingMessageId = nil
                 streamingContent = ""
+                toolActivityMessage = nil
                 errorMessage = "Error: \(error.localizedDescription)"
                 print("Claude API Error: \(error)")
             }

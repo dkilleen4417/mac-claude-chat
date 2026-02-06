@@ -8,23 +8,25 @@
 import Foundation
 import Security
 
-/// A service for securely storing and retrieving the Anthropic API key from the macOS Keychain
+/// A service for securely storing and retrieving API keys from the macOS Keychain
 enum KeychainService {
     private static let service = "JCC.mac-claude-chat"
-    private static let account = "anthropic-api-key"
-    
-    /// Saves the API key to the Keychain
-    /// - Parameter apiKey: The API key to store
-    /// - Returns: True if successful, false otherwise
+
+    // MARK: - Account Identifiers
+
+    private static let anthropicAccount = "anthropic-api-key"
+    private static let tavilyAccount = "tavily-api-key"
+    private static let owmAccount = "owm-api-key"
+
+    // MARK: - Generic Keychain Helpers
+
     @discardableResult
-    static func saveAPIKey(_ apiKey: String) -> Bool {
-        guard let data = apiKey.data(using: .utf8) else {
-            return false
-        }
-        
+    private static func saveKey(_ key: String, account: String) -> Bool {
+        guard let data = key.data(using: .utf8) else { return false }
+
         // Delete any existing key first
-        deleteAPIKey()
-        
+        deleteKey(account: account)
+
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -32,15 +34,12 @@ enum KeychainService {
             kSecValueData as String: data,
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock
         ]
-        
+
         let status = SecItemAdd(query as CFDictionary, nil)
-        print("Keychain save status: \(status)")
         return status == errSecSuccess
     }
-    
-    /// Retrieves the API key from the Keychain
-    /// - Returns: The stored API key, or nil if not found
-    static func getAPIKey() -> String? {
+
+    private static func getKey(account: String) -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -48,37 +47,82 @@ enum KeychainService {
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne
         ]
-        
+
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
-        print("Keychain get status: \(status)")
-        
+
         guard status == errSecSuccess,
               let data = result as? Data,
-              let apiKey = String(data: data, encoding: .utf8) else {
+              let key = String(data: data, encoding: .utf8) else {
             return nil
         }
-        
-        return apiKey
+
+        return key
     }
-    
-    /// Deletes the API key from the Keychain
-    /// - Returns: True if successful or key didn't exist, false on error
+
     @discardableResult
-    static func deleteAPIKey() -> Bool {
+    private static func deleteKey(account: String) -> Bool {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account
         ]
-        
+
         let status = SecItemDelete(query as CFDictionary)
         return status == errSecSuccess || status == errSecItemNotFound
     }
-    
-    /// Checks if an API key exists in the Keychain
-    /// - Returns: True if an API key is stored
+
+    // MARK: - Anthropic API Key
+
+    @discardableResult
+    static func saveAPIKey(_ apiKey: String) -> Bool {
+        saveKey(apiKey, account: anthropicAccount)
+    }
+
+    static func getAPIKey() -> String? {
+        getKey(account: anthropicAccount)
+    }
+
+    @discardableResult
+    static func deleteAPIKey() -> Bool {
+        deleteKey(account: anthropicAccount)
+    }
+
     static func hasAPIKey() -> Bool {
-        return getAPIKey() != nil
+        getAPIKey() != nil
+    }
+
+    // MARK: - Tavily API Key
+
+    @discardableResult
+    static func saveTavilyKey(_ key: String) -> Bool {
+        saveKey(key, account: tavilyAccount)
+    }
+
+    static func getTavilyKey() -> String? {
+        if let keychainKey = getKey(account: tavilyAccount), !keychainKey.isEmpty {
+            return keychainKey
+        }
+        if let envKey = ProcessInfo.processInfo.environment["TAVILY_API_KEY"], !envKey.isEmpty {
+            return envKey
+        }
+        return nil
+    }
+
+    // MARK: - OpenWeatherMap API Key
+
+    @discardableResult
+    static func saveOWMKey(_ key: String) -> Bool {
+        saveKey(key, account: owmAccount)
+    }
+
+    static func getOWMKey() -> String? {
+        if let keychainKey = getKey(account: owmAccount), !keychainKey.isEmpty {
+            return keychainKey
+        }
+        if let envKey = ProcessInfo.processInfo.environment["OWM_API_KEY"], !envKey.isEmpty {
+            return envKey
+        }
+        return nil
     }
 }
