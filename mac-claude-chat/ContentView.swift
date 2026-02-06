@@ -494,7 +494,18 @@ struct ContentView: View {
             }
         }
         .task {
-            await connectToDatabase()
+            // Only connect to database if we have an API key
+            if claudeService.hasAPIKey {
+                await connectToDatabase()
+            }
+        }
+        .onChange(of: needsAPIKey) { oldValue, newValue in
+            // When API key is saved, connect to database
+            if oldValue == true && newValue == false {
+                Task {
+                    await connectToDatabase()
+                }
+            }
         }
         .onChange(of: selectedChat) { oldValue, newValue in
             if let chatId = newValue {
@@ -545,9 +556,10 @@ struct ContentView: View {
             APIKeySetupView(isPresented: $needsAPIKey) {
                 needsAPIKey = false
             }
+            .interactiveDismissDisabled(true)
         }
-        .onAppear {
-            // Check if we need to show API key setup on launch
+        .task {
+            // Check for API key FIRST, before anything else
             if !claudeService.hasAPIKey {
                 needsAPIKey = true
             }

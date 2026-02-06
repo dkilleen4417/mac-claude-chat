@@ -10,7 +10,7 @@ import Security
 
 /// A service for securely storing and retrieving the Anthropic API key from the macOS Keychain
 enum KeychainService {
-    private static let service = "com.mac-claude-chat.api-key"
+    private static let service = "JCC.mac-claude-chat"
     private static let account = "anthropic-api-key"
     
     /// Saves the API key to the Keychain
@@ -30,10 +30,11 @@ enum KeychainService {
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
             kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlocked
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock
         ]
         
         let status = SecItemAdd(query as CFDictionary, nil)
+        print("Keychain save status: \(status)")
         return status == errSecSuccess
     }
     
@@ -50,6 +51,7 @@ enum KeychainService {
         
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
+        print("Keychain get status: \(status)")
         
         guard status == errSecSuccess,
               let data = result as? Data,
