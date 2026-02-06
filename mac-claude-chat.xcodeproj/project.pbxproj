@@ -6,11 +6,6 @@
 	objectVersion = 77;
 	objects = {
 
-/* Begin PBXBuildFile section */
-		3AE4CD822F34D087002EBE7F /* MongoKitten in Frameworks */ = {isa = PBXBuildFile; productRef = 3AE4CD812F34D087002EBE7F /* MongoKitten */; };
-		3AE4CD842F34D0B5002EBE7F /* MongoClient in Frameworks */ = {isa = PBXBuildFile; productRef = 3AE4CD832F34D0B5002EBE7F /* MongoClient */; };
-/* End PBXBuildFile section */
-
 /* Begin PBXContainerItemProxy section */
 		3AE4CD632F34683D002EBE7F /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -57,8 +52,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				3AE4CD842F34D0B5002EBE7F /* MongoClient in Frameworks */,
-				3AE4CD822F34D087002EBE7F /* MongoKitten in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -127,8 +120,6 @@
 			);
 			name = "mac-claude-chat";
 			packageProductDependencies = (
-				3AE4CD812F34D087002EBE7F /* MongoKitten */,
-				3AE4CD832F34D0B5002EBE7F /* MongoClient */,
 			);
 			productName = "mac-claude-chat";
 			productReference = 3AE4CD552F34683C002EBE7F /* mac-claude-chat.app */;
@@ -213,7 +204,6 @@
 			mainGroup = 3AE4CD4C2F34683C002EBE7F;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				3AE4CD7F2F347196002EBE7F /* XCRemoteSwiftPackageReference "MongoKitten" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 3AE4CD562F34683C002EBE7F /* Products */;
@@ -619,30 +609,6 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
-
-/* Begin XCRemoteSwiftPackageReference section */
-		3AE4CD7F2F347196002EBE7F /* XCRemoteSwiftPackageReference "MongoKitten" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/orlandos-nl/MongoKitten.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 7.11.0;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		3AE4CD812F34D087002EBE7F /* MongoKitten */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 3AE4CD7F2F347196002EBE7F /* XCRemoteSwiftPackageReference "MongoKitten" */;
-			productName = MongoKitten;
-		};
-		3AE4CD832F34D0B5002EBE7F /* MongoClient */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 3AE4CD7F2F347196002EBE7F /* XCRemoteSwiftPackageReference "MongoKitten" */;
-			productName = MongoClient;
-		};
-/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 3AE4CD4D2F34683C002EBE7F /* Project object */;
 }

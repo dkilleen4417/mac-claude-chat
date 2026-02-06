@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import SwiftData
 
 @main
 struct mac_claude_chatApp: App {
@@ -13,6 +14,7 @@ struct mac_claude_chatApp: App {
         WindowGroup {
             ContentView()
         }
+        .modelContainer(for: [ChatSession.self, ChatMessage.self])
         .commands {
             CommandGroup(replacing: .newItem) {
                 Button("New Chat") {

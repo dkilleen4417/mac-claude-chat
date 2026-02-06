@@ -6,45 +6,16 @@
 //
 
 import SwiftUI
-import MongoKitten
+import SwiftData
 
-// MARK: - MongoDB Service
+// MARK: - Data Transfer Objects
 
-struct StoredMessage: Codable {
-    let id: String
-    let chatId: String
-    let role: String
-    let content: String
-    let timestamp: Date
-}
-
-struct ChatMetadata: Codable {
+struct ChatMetadata {
     let chatId: String
     let totalInputTokens: Int
     let totalOutputTokens: Int
     let lastUpdated: Date
     let isDefault: Bool
-    
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        chatId = try container.decode(String.self, forKey: .chatId)
-        totalInputTokens = try container.decode(Int.self, forKey: .totalInputTokens)
-        totalOutputTokens = try container.decode(Int.self, forKey: .totalOutputTokens)
-        lastUpdated = try container.decode(Date.self, forKey: .lastUpdated)
-        isDefault = try container.decodeIfPresent(Bool.self, forKey: .isDefault) ?? false
-    }
-    
-    init(chatId: String, totalInputTokens: Int, totalOutputTokens: Int, lastUpdated: Date, isDefault: Bool) {
-        self.chatId = chatId
-        self.totalInputTokens = totalInputTokens
-        self.totalOutputTokens = totalOutputTokens
-        self.lastUpdated = lastUpdated
-        self.isDefault = isDefault
-    }
-    
-    enum CodingKeys: String, CodingKey {
-        case chatId, totalInputTokens, totalOutputTokens, lastUpdated, isDefault
-    }
 }
 
 struct ChatInfo: Identifiable, Equatable {
@@ -58,118 +29,135 @@ struct ChatInfo: Identifiable, Equatable {
     }
 }
 
-class MongoDBService {
-    private var database: MongoDatabase?
-    private let connectionString = "mongodb://localhost:27017"
-    private let databaseName = "claude_chat"
+// MARK: - SwiftData Service
+
+class SwiftDataService {
+    private let modelContext: ModelContext
     
-    func connect() async throws {
-        let cluster = try MongoCluster(
-            lazyConnectingTo: ConnectionSettings(connectionString)
-        )
-        database = cluster[databaseName]
+    init(modelContext: ModelContext) {
+        self.modelContext = modelContext
     }
     
-    func saveMessage(_ message: Message, chatId: String) async throws {
-        guard let db = database else { return }
-        let collection = db["messages"]
+    func saveMessage(_ message: Message, chatId: String) throws {
+        let descriptor = FetchDescriptor<ChatSession>(
+            predicate: #Predicate { $0.chatId == chatId }
+        )
         
-        let storedMessage = StoredMessage(
-            id: message.id.uuidString,
-            chatId: chatId,
+        guard let session = try modelContext.fetch(descriptor).first else {
+            return
+        }
+        
+        let chatMessage = ChatMessage(
+            messageId: message.id.uuidString,
             role: message.role == .user ? "user" : "assistant",
             content: message.content,
             timestamp: message.timestamp
         )
+        chatMessage.session = session
+        session.messages.append(chatMessage)
+        session.lastUpdated = Date()
         
-        try await collection.insertEncoded(storedMessage)
+        try modelContext.save()
     }
     
-    func loadMessages(forChat chatId: String) async throws -> [Message] {
-        guard let db = database else { return [] }
-        let collection = db["messages"]
-        
-        let messages = try await collection
-            .find("chatId" == chatId)
-            .sort(["timestamp": .ascending])
-            .decode(StoredMessage.self)
-            .drain()
-        
-        return messages.map { stored in
-            Message(
-                id: UUID(uuidString: stored.id) ?? UUID(),
-                role: stored.role == "user" ? .user : .assistant,
-                content: stored.content,
-                timestamp: stored.timestamp
-            )
-        }
-    }
-    
-    func saveMetadata(chatId: String, inputTokens: Int, outputTokens: Int, isDefault: Bool = false) async throws {
-        guard let db = database else { return }
-        let collection = db["metadata"]
-        
-        let metadata = ChatMetadata(
-            chatId: chatId,
-            totalInputTokens: inputTokens,
-            totalOutputTokens: outputTokens,
-            lastUpdated: Date(),
-            isDefault: isDefault
+    func loadMessages(forChat chatId: String) throws -> [Message] {
+        let descriptor = FetchDescriptor<ChatSession>(
+            predicate: #Predicate { $0.chatId == chatId }
         )
         
-        try await collection.deleteAll(where: "chatId" == chatId)
-        try await collection.insertEncoded(metadata)
+        guard let session = try modelContext.fetch(descriptor).first else {
+            return []
+        }
+        
+        return session.messages
+            .sorted { $0.timestamp < $1.timestamp }
+            .map { chatMessage in
+                Message(
+                    id: UUID(uuidString: chatMessage.messageId) ?? UUID(),
+                    role: chatMessage.role == "user" ? .user : .assistant,
+                    content: chatMessage.content,
+                    timestamp: chatMessage.timestamp
+                )
+            }
     }
     
-    func loadAllChats() async throws -> [ChatInfo] {
-        guard let db = database else { return [] }
-        let collection = db["metadata"]
+    func saveMetadata(chatId: String, inputTokens: Int, outputTokens: Int, isDefault: Bool = false) throws {
+        let descriptor = FetchDescriptor<ChatSession>(
+            predicate: #Predicate { $0.chatId == chatId }
+        )
         
-        let metadataList = try await collection
-            .find()
-            .decode(ChatMetadata.self)
-            .drain()
+        if let session = try modelContext.fetch(descriptor).first {
+            session.totalInputTokens = inputTokens
+            session.totalOutputTokens = outputTokens
+            session.lastUpdated = Date()
+            session.isDefault = isDefault
+        } else {
+            let session = ChatSession(
+                chatId: chatId,
+                totalInputTokens: inputTokens,
+                totalOutputTokens: outputTokens,
+                lastUpdated: Date(),
+                isDefault: isDefault
+            )
+            modelContext.insert(session)
+        }
         
-        return metadataList.map { metadata in
+        try modelContext.save()
+    }
+    
+    func loadAllChats() throws -> [ChatInfo] {
+        let descriptor = FetchDescriptor<ChatSession>()
+        let sessions = try modelContext.fetch(descriptor)
+        
+        return sessions.map { session in
             ChatInfo(
-                id: metadata.chatId,
-                name: metadata.chatId,
-                lastUpdated: metadata.lastUpdated,
-                isDefault: metadata.isDefault || metadata.chatId == "Scratch Pad"
+                id: session.chatId,
+                name: session.chatId,
+                lastUpdated: session.lastUpdated,
+                isDefault: session.isDefault || session.chatId == "Scratch Pad"
             )
         }
     }
     
-    func createChat(name: String) async throws {
-        guard let db = database else { return }
-        let collection = db["metadata"]
-        
-        let metadata = ChatMetadata(
+    func createChat(name: String) throws {
+        let session = ChatSession(
             chatId: name,
             totalInputTokens: 0,
             totalOutputTokens: 0,
             lastUpdated: Date(),
             isDefault: false
         )
-        
-        try await collection.insertEncoded(metadata)
+        modelContext.insert(session)
+        try modelContext.save()
     }
     
-    func loadMetadata(forChat chatId: String) async throws -> ChatMetadata? {
-        guard let db = database else { return nil }
-        let collection = db["metadata"]
+    func loadMetadata(forChat chatId: String) throws -> ChatMetadata? {
+        let descriptor = FetchDescriptor<ChatSession>(
+            predicate: #Predicate { $0.chatId == chatId }
+        )
         
-        guard let document = try await collection.findOne("chatId" == chatId) else {
+        guard let session = try modelContext.fetch(descriptor).first else {
             return nil
         }
         
-        return try BSONDecoder().decode(ChatMetadata.self, from: document)
+        return ChatMetadata(
+            chatId: session.chatId,
+            totalInputTokens: session.totalInputTokens,
+            totalOutputTokens: session.totalOutputTokens,
+            lastUpdated: session.lastUpdated,
+            isDefault: session.isDefault
+        )
     }
     
-    func deleteChat(_ chatId: String) async throws {
-        guard let db = database else { return }
-        try await db["messages"].deleteAll(where: "chatId" == chatId)
-        try await db["metadata"].deleteAll(where: "chatId" == chatId)
+    func deleteChat(_ chatId: String) throws {
+        let descriptor = FetchDescriptor<ChatSession>(
+            predicate: #Predicate { $0.chatId == chatId }
+        )
+        
+        if let session = try modelContext.fetch(descriptor).first {
+            modelContext.delete(session)
+            try modelContext.save()
+        }
     }
 }
 
@@ -433,7 +421,6 @@ struct ContentView: View {
     @State private var totalInputTokens: Int = 0
     @State private var totalOutputTokens: Int = 0
     @State private var errorMessage: String?
-    @State private var isConnectingToMongo: Bool = true
     @State private var chats: [ChatInfo] = []
     @State private var showingNewChatDialog: Bool = false
     @State private var newChatName: String = ""
@@ -443,8 +430,12 @@ struct ContentView: View {
     @State private var showingAPIKeySetup: Bool = false
     @State private var needsAPIKey: Bool = false
     
+    @Environment(\.modelContext) private var modelContext
     private let claudeService = ClaudeService()
-    private let mongoService = MongoDBService()
+    
+    private var dataService: SwiftDataService {
+        SwiftDataService(modelContext: modelContext)
+    }
     
     var body: some View {
         NavigationSplitView {
@@ -484,34 +475,23 @@ struct ContentView: View {
             }
             .navigationSplitViewColumnWidth(min: 200, ideal: 250, max: 300)
         } detail: {
-            if isConnectingToMongo {
-                VStack {
-                    ProgressView("Connecting to MongoDB...")
-                        .padding()
-                }
-            } else {
-                chatView
-            }
+            chatView
         }
         .task {
-            // Only connect to database if we have an API key
+            // Initialize database if we have an API key
             if claudeService.hasAPIKey {
-                await connectToDatabase()
+                initializeDatabase()
             }
         }
         .onChange(of: needsAPIKey) { oldValue, newValue in
-            // When API key is saved, connect to database
+            // When API key is saved, initialize database
             if oldValue == true && newValue == false {
-                Task {
-                    await connectToDatabase()
-                }
+                initializeDatabase()
             }
         }
         .onChange(of: selectedChat) { oldValue, newValue in
             if let chatId = newValue {
-                Task {
-                    await loadChat(chatId: chatId)
-                }
+                loadChat(chatId: chatId)
             }
         }
         .alert("New Chat", isPresented: $showingNewChatDialog) {
@@ -747,28 +727,20 @@ struct ContentView: View {
     
     // MARK: - Database Operations
     
-    private func connectToDatabase() async {
-        do {
-            try await mongoService.connect()
-            await ensureScratchPadExists()
-            await loadAllChats()
-            isConnectingToMongo = false
-            
-            if let chatId = selectedChat {
-                await loadChat(chatId: chatId)
-            }
-        } catch {
-            isConnectingToMongo = false
-            errorMessage = "MongoDB connection failed: \(error.localizedDescription)"
-            print("MongoDB Error: \(error)")
+    private func initializeDatabase() {
+        ensureScratchPadExists()
+        loadAllChats()
+        
+        if let chatId = selectedChat {
+            loadChat(chatId: chatId)
         }
     }
     
-    private func ensureScratchPadExists() async {
+    private func ensureScratchPadExists() {
         do {
-            let allChats = try await mongoService.loadAllChats()
+            let allChats = try dataService.loadAllChats()
             if !allChats.contains(where: { $0.id == "Scratch Pad" }) {
-                try await mongoService.saveMetadata(
+                try dataService.saveMetadata(
                     chatId: "Scratch Pad",
                     inputTokens: 0,
                     outputTokens: 0,
@@ -780,9 +752,9 @@ struct ContentView: View {
         }
     }
     
-    private func loadAllChats() async {
+    private func loadAllChats() {
         do {
-            chats = try await mongoService.loadAllChats()
+            chats = try dataService.loadAllChats()
         } catch {
             errorMessage = "Failed to load chats: \(error.localizedDescription)"
             print("Load chats error: \(error)")
@@ -793,41 +765,37 @@ struct ContentView: View {
         let trimmedName = newChatName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty else { return }
         
-        Task {
-            do {
-                try await mongoService.createChat(name: trimmedName)
-                await loadAllChats()
-                selectedChat = trimmedName
-                newChatName = ""
-            } catch {
-                errorMessage = "Failed to create chat: \(error.localizedDescription)"
-            }
+        do {
+            try dataService.createChat(name: trimmedName)
+            loadAllChats()
+            selectedChat = trimmedName
+            newChatName = ""
+        } catch {
+            errorMessage = "Failed to create chat: \(error.localizedDescription)"
         }
     }
     
     private func deleteChat(_ chat: ChatInfo) {
         guard !chat.isDefault else { return }
         
-        Task {
-            do {
-                try await mongoService.deleteChat(chat.id)
-                await loadAllChats()
-                
-                if selectedChat == chat.id {
-                    selectedChat = "Scratch Pad"
-                }
-            } catch {
-                errorMessage = "Failed to delete chat: \(error.localizedDescription)"
+        do {
+            try dataService.deleteChat(chat.id)
+            loadAllChats()
+            
+            if selectedChat == chat.id {
+                selectedChat = "Scratch Pad"
             }
+        } catch {
+            errorMessage = "Failed to delete chat: \(error.localizedDescription)"
         }
     }
     
-    private func loadChat(chatId: String) async {
+    private func loadChat(chatId: String) {
         do {
-            let loadedMessages = try await mongoService.loadMessages(forChat: chatId)
+            let loadedMessages = try dataService.loadMessages(forChat: chatId)
             messages = loadedMessages
             
-            if let metadata = try await mongoService.loadMetadata(forChat: chatId) {
+            if let metadata = try dataService.loadMetadata(forChat: chatId) {
                 totalInputTokens = metadata.totalInputTokens
                 totalOutputTokens = metadata.totalOutputTokens
             } else {
@@ -845,26 +813,24 @@ struct ContentView: View {
     private func clearCurrentChat() {
         guard let chatId = selectedChat else { return }
         
-        Task {
-            do {
-                try await mongoService.deleteChat(chatId)
-                messages = []
-                totalInputTokens = 0
-                totalOutputTokens = 0
-                
-                let isDefault = chatId == "Scratch Pad"
-                try await mongoService.saveMetadata(
-                    chatId: chatId,
-                    inputTokens: 0,
-                    outputTokens: 0,
-                    isDefault: isDefault
-                )
-                
-                await loadAllChats()
-                errorMessage = nil
-            } catch {
-                errorMessage = "Failed to clear chat: \(error.localizedDescription)"
-            }
+        do {
+            try dataService.deleteChat(chatId)
+            messages = []
+            totalInputTokens = 0
+            totalOutputTokens = 0
+            
+            let isDefault = chatId == "Scratch Pad"
+            try dataService.saveMetadata(
+                chatId: chatId,
+                inputTokens: 0,
+                outputTokens: 0,
+                isDefault: isDefault
+            )
+            
+            loadAllChats()
+            errorMessage = nil
+        } catch {
+            errorMessage = "Failed to clear chat: \(error.localizedDescription)"
         }
     }
     
@@ -882,12 +848,10 @@ struct ContentView: View {
         
         messages.append(userMessage)
         
-        Task {
-            do {
-                try await mongoService.saveMessage(userMessage, chatId: chatId)
-            } catch {
-                print("Failed to save user message: \(error)")
-            }
+        do {
+            try dataService.saveMessage(userMessage, chatId: chatId)
+        } catch {
+            print("Failed to save user message: \(error)")
         }
         
         messageText = ""
@@ -932,17 +896,17 @@ struct ContentView: View {
                 streamingContent = ""
                 isLoading = false
                 
-                try await mongoService.saveMessage(assistantMessage, chatId: chatId)
+                try dataService.saveMessage(assistantMessage, chatId: chatId)
                 
                 let isDefault = chatId == "Scratch Pad"
-                try await mongoService.saveMetadata(
+                try dataService.saveMetadata(
                     chatId: chatId,
                     inputTokens: totalInputTokens,
                     outputTokens: totalOutputTokens,
                     isDefault: isDefault
                 )
                 
-                await loadAllChats()
+                loadAllChats()
                 
             } catch {
                 isLoading = false
