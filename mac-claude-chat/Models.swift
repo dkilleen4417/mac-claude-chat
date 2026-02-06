@@ -8,6 +8,8 @@
 import Foundation
 import SwiftData
 
+// MARK: - SwiftData Persistent Models
+
 @Model
 final class ChatSession {
     @Attribute(.unique) var chatId: String
@@ -56,4 +58,96 @@ final class ChatMessage {
         self.content = content
         self.timestamp = timestamp
     }
+}
+
+// MARK: - In-Memory Models
+
+struct Message: Identifiable {
+    let id: UUID
+    let role: Role
+    let content: String
+    let timestamp: Date
+    
+    init(id: UUID = UUID(), role: Role, content: String, timestamp: Date = Date()) {
+        self.id = id
+        self.role = role
+        self.content = content
+        self.timestamp = timestamp
+    }
+    
+    enum Role {
+        case user
+        case assistant
+    }
+}
+
+struct ChatMetadata {
+    let chatId: String
+    let totalInputTokens: Int
+    let totalOutputTokens: Int
+    let lastUpdated: Date
+    let isDefault: Bool
+}
+
+struct ChatInfo: Identifiable, Equatable {
+    let id: String
+    let name: String
+    let lastUpdated: Date
+    let isDefault: Bool
+    
+    static func == (lhs: ChatInfo, rhs: ChatInfo) -> Bool {
+        lhs.id == rhs.id
+    }
+}
+
+// MARK: - Claude Model Configuration
+
+enum ClaudeModel: String, CaseIterable, Identifiable {
+    case turbo = "claude-haiku-4-5-20251001"
+    case fast = "claude-sonnet-4-5-20250929"
+    case premium = "claude-opus-4-6"
+    
+    var id: String { rawValue }
+    
+    var displayName: String {
+        switch self {
+        case .turbo: return "Haiku 4.5"
+        case .fast: return "Sonnet 4.5"
+        case .premium: return "Opus 4.6"
+        }
+    }
+    
+    var emoji: String {
+        switch self {
+        case .turbo: return "💨"
+        case .fast: return "⚡"
+        case .premium: return "🚀"
+        }
+    }
+    
+    var inputCostPerMillion: Double {
+        switch self {
+        case .turbo: return 0.80
+        case .fast: return 3.00
+        case .premium: return 5.00
+        }
+    }
+    
+    var outputCostPerMillion: Double {
+        switch self {
+        case .turbo: return 4.00
+        case .fast: return 15.00
+        case .premium: return 25.00
+        }
+    }
+}
+
+// MARK: - Notification Names
+
+extension Notification.Name {
+    static let newChat = Notification.Name("newChat")
+    static let clearChat = Notification.Name("clearChat")
+    static let deleteChat = Notification.Name("deleteChat")
+    static let selectModel = Notification.Name("selectModel")
+    static let showAPIKeySettings = Notification.Name("showAPIKeySettings")
 }

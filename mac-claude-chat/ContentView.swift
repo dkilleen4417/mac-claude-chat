@@ -8,566 +8,6 @@
 import SwiftUI
 import SwiftData
 
-// MARK: - Data Transfer Objects
-
-struct ChatMetadata {
-    let chatId: String
-    let totalInputTokens: Int
-    let totalOutputTokens: Int
-    let lastUpdated: Date
-    let isDefault: Bool
-}
-
-struct ChatInfo: Identifiable, Equatable {
-    let id: String
-    let name: String
-    let lastUpdated: Date
-    let isDefault: Bool
-    
-    static func == (lhs: ChatInfo, rhs: ChatInfo) -> Bool {
-        lhs.id == rhs.id
-    }
-}
-
-// MARK: - SwiftData Service
-
-class SwiftDataService {
-    private let modelContext: ModelContext
-    
-    init(modelContext: ModelContext) {
-        self.modelContext = modelContext
-    }
-    
-    func saveMessage(_ message: Message, chatId: String) throws {
-        let descriptor = FetchDescriptor<ChatSession>(
-            predicate: #Predicate { $0.chatId == chatId }
-        )
-        
-        guard let session = try modelContext.fetch(descriptor).first else {
-            return
-        }
-        
-        let chatMessage = ChatMessage(
-            messageId: message.id.uuidString,
-            role: message.role == .user ? "user" : "assistant",
-            content: message.content,
-            timestamp: message.timestamp
-        )
-        chatMessage.session = session
-        session.messages.append(chatMessage)
-        session.lastUpdated = Date()
-        
-        try modelContext.save()
-    }
-    
-    func loadMessages(forChat chatId: String) throws -> [Message] {
-        let descriptor = FetchDescriptor<ChatSession>(
-            predicate: #Predicate { $0.chatId == chatId }
-        )
-        
-        guard let session = try modelContext.fetch(descriptor).first else {
-            return []
-        }
-        
-        return session.messages
-            .sorted { $0.timestamp < $1.timestamp }
-            .map { chatMessage in
-                Message(
-                    id: UUID(uuidString: chatMessage.messageId) ?? UUID(),
-                    role: chatMessage.role == "user" ? .user : .assistant,
-                    content: chatMessage.content,
-                    timestamp: chatMessage.timestamp
-                )
-            }
-    }
-    
-    func saveMetadata(chatId: String, inputTokens: Int, outputTokens: Int, isDefault: Bool = false) throws {
-        let descriptor = FetchDescriptor<ChatSession>(
-            predicate: #Predicate { $0.chatId == chatId }
-        )
-        
-        if let session = try modelContext.fetch(descriptor).first {
-            session.totalInputTokens = inputTokens
-            session.totalOutputTokens = outputTokens
-            session.lastUpdated = Date()
-            session.isDefault = isDefault
-        } else {
-            let session = ChatSession(
-                chatId: chatId,
-                totalInputTokens: inputTokens,
-                totalOutputTokens: outputTokens,
-                lastUpdated: Date(),
-                isDefault: isDefault
-            )
-            modelContext.insert(session)
-        }
-        
-        try modelContext.save()
-    }
-    
-    func loadAllChats() throws -> [ChatInfo] {
-        let descriptor = FetchDescriptor<ChatSession>()
-        let sessions = try modelContext.fetch(descriptor)
-        
-        return sessions.map { session in
-            ChatInfo(
-                id: session.chatId,
-                name: session.chatId,
-                lastUpdated: session.lastUpdated,
-                isDefault: session.isDefault || session.chatId == "Scratch Pad"
-            )
-        }
-    }
-    
-    func createChat(name: String) throws {
-        let session = ChatSession(
-            chatId: name,
-            totalInputTokens: 0,
-            totalOutputTokens: 0,
-            lastUpdated: Date(),
-            isDefault: false
-        )
-        modelContext.insert(session)
-        try modelContext.save()
-    }
-    
-    func loadMetadata(forChat chatId: String) throws -> ChatMetadata? {
-        let descriptor = FetchDescriptor<ChatSession>(
-            predicate: #Predicate { $0.chatId == chatId }
-        )
-        
-        guard let session = try modelContext.fetch(descriptor).first else {
-            return nil
-        }
-        
-        return ChatMetadata(
-            chatId: session.chatId,
-            totalInputTokens: session.totalInputTokens,
-            totalOutputTokens: session.totalOutputTokens,
-            lastUpdated: session.lastUpdated,
-            isDefault: session.isDefault
-        )
-    }
-    
-    func deleteChat(_ chatId: String) throws {
-        let descriptor = FetchDescriptor<ChatSession>(
-            predicate: #Predicate { $0.chatId == chatId }
-        )
-        
-        if let session = try modelContext.fetch(descriptor).first {
-            modelContext.delete(session)
-            try modelContext.save()
-        }
-    }
-}
-
-// MARK: - Model Configuration
-
-enum ClaudeModel: String, CaseIterable, Identifiable {
-    case turbo = "claude-haiku-4-5-20251001"
-    case fast = "claude-sonnet-4-20250514"
-    case premium = "claude-opus-4-6"
-    
-    var id: String { rawValue }
-    
-    var displayName: String {
-        switch self {
-        case .turbo: return "Haiku 4.5"
-        case .fast: return "Sonnet 4"
-        case .premium: return "Opus 4.6"
-        }
-    }
-    
-    var emoji: String {
-        switch self {
-        case .turbo: return "💨"
-        case .fast: return "⚡"
-        case .premium: return "🚀"
-        }
-    }
-    
-    var inputCostPerMillion: Double {
-        switch self {
-        case .turbo: return 0.80
-        case .fast: return 3.00
-        case .premium: return 5.00
-        }
-    }
-    
-    var outputCostPerMillion: Double {
-        switch self {
-        case .turbo: return 4.00
-        case .fast: return 15.00
-        case .premium: return 25.00
-        }
-    }
-}
-
-// MARK: - Claude API Service
-
-struct ClaudeAPIRequest: Codable {
-    let model: String
-    let max_tokens: Int
-    let system: String
-    let messages: [ClaudeMessage]
-    let stream: Bool
-}
-
-struct ClaudeMessage: Codable {
-    let role: String
-    let content: String
-}
-
-struct ClaudeAPIResponse: Codable {
-    let content: [ContentBlock]
-    let usage: Usage
-    
-    struct ContentBlock: Codable {
-        let text: String
-    }
-    
-    struct Usage: Codable {
-        let input_tokens: Int
-        let output_tokens: Int
-    }
-}
-
-struct StreamEvent: Codable {
-    let type: String
-}
-
-struct ContentBlockDelta: Codable {
-    let type: String
-    let delta: Delta
-    
-    struct Delta: Codable {
-        let type: String
-        let text: String
-    }
-}
-
-struct MessageDelta: Codable {
-    let type: String
-    let delta: DeltaInfo
-    let usage: Usage
-    
-    struct DeltaInfo: Codable {
-        let stop_reason: String?
-        let stop_sequence: String?
-    }
-    
-    struct Usage: Codable {
-        let output_tokens: Int
-    }
-}
-
-struct MessageStart: Codable {
-    let type: String
-    let message: MessageInfo
-    
-    struct MessageInfo: Codable {
-        let usage: Usage
-    }
-    
-    struct Usage: Codable {
-        let input_tokens: Int
-        let output_tokens: Int
-    }
-}
-
-class ClaudeService {
-    private let apiVersion = "2023-06-01"
-    private let endpoint = "https://api.anthropic.com/v1/messages"
-    
-    /// Gets the API key from Keychain, falling back to environment variable
-    private var apiKey: String? {
-        // Try Keychain first, then environment variable
-        if let keychainKey = KeychainService.getAPIKey(), !keychainKey.isEmpty {
-            return keychainKey
-        }
-        if let envKey = ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"], !envKey.isEmpty {
-            return envKey
-        }
-        return nil
-    }
-    
-    /// Checks if an API key is available
-    var hasAPIKey: Bool {
-        apiKey != nil
-    }
-    
-    func streamMessage(
-        messages: [Message],
-        model: ClaudeModel,
-        onChunk: @escaping (String) -> Void,
-        onComplete: @escaping (Int, Int) -> Void
-    ) async throws {
-        guard let apiKey = apiKey else {
-            throw NSError(domain: "ClaudeAPI", code: -1, userInfo: [NSLocalizedDescriptionKey: "No API key configured. Please add your Anthropic API key in Settings."])
-        }
-        
-        let claudeMessages = messages.map { message in
-            ClaudeMessage(
-                role: message.role == .user ? "user" : "assistant",
-                content: message.content
-            )
-        }
-        
-        let requestBody = ClaudeAPIRequest(
-            model: model.rawValue,
-            max_tokens: 8192,
-            system: "You are Claude, a conversational AI assistant chatting with Drew, a retired engineer and programmer in Catonsville, Maryland.",
-            messages: claudeMessages,
-            stream: true
-        )
-        
-        var request = URLRequest(url: URL(string: endpoint)!)
-        request.httpMethod = "POST"
-        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
-        request.setValue(apiVersion, forHTTPHeaderField: "anthropic-version")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(requestBody)
-        
-        let (bytes, response) = try await URLSession.shared.bytes(for: request)
-        
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw URLError(.badServerResponse)
-        }
-        
-        guard (200...299).contains(httpResponse.statusCode) else {
-            throw NSError(domain: "ClaudeAPI", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "HTTP \(httpResponse.statusCode)"])
-        }
-        
-        var inputTokens = 0
-        var outputTokens = 0
-        
-        for try await line in bytes.lines {
-            if line.hasPrefix("data: ") {
-                let jsonString = String(line.dropFirst(6))
-                
-                if jsonString == "[DONE]" {
-                    continue
-                }
-                
-                guard let data = jsonString.data(using: .utf8) else {
-                    continue
-                }
-                
-                if let streamEvent = try? JSONDecoder().decode(StreamEvent.self, from: data) {
-                    switch streamEvent.type {
-                    case "message_start":
-                        if let messageStart = try? JSONDecoder().decode(MessageStart.self, from: data) {
-                            inputTokens = messageStart.message.usage.input_tokens
-                        }
-                        
-                    case "content_block_delta":
-                        if let delta = try? JSONDecoder().decode(ContentBlockDelta.self, from: data) {
-                            await MainActor.run {
-                                onChunk(delta.delta.text)
-                            }
-                        }
-                        
-                    case "message_delta":
-                        if let messageDelta = try? JSONDecoder().decode(MessageDelta.self, from: data) {
-                            outputTokens = messageDelta.usage.output_tokens
-                        }
-                        
-                    default:
-                        break
-                    }
-                }
-            }
-        }
-        
-        await MainActor.run {
-            onComplete(inputTokens, outputTokens)
-        }
-    }
-
-    /// Tool-aware streaming that handles text and tool_use content blocks.
-    /// Returns a StreamResult with accumulated text, parsed tool calls, and stop reason.
-    /// The caller is responsible for the tool execution loop.
-    func streamMessageWithTools(
-        messages: [[String: Any]],
-        model: ClaudeModel,
-        systemPrompt: String,
-        tools: [[String: Any]]?,
-        onTextChunk: @escaping (String) -> Void
-    ) async throws -> StreamResult {
-        guard let apiKey = apiKey else {
-            throw NSError(domain: "ClaudeAPI", code: -1,
-                          userInfo: [NSLocalizedDescriptionKey: "No API key configured. Please add your Anthropic API key in Settings."])
-        }
-
-        // Build request body with JSONSerialization (required for polymorphic content field)
-        var body: [String: Any] = [
-            "model": model.rawValue,
-            "max_tokens": 8192,
-            "system": systemPrompt,
-            "messages": messages,
-            "stream": true
-        ]
-        if let tools = tools, !tools.isEmpty {
-            body["tools"] = tools
-        }
-
-        let jsonData = try JSONSerialization.data(withJSONObject: body)
-
-        var request = URLRequest(url: URL(string: endpoint)!)
-        request.httpMethod = "POST"
-        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
-        request.setValue(apiVersion, forHTTPHeaderField: "anthropic-version")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = jsonData
-
-        let (bytes, response) = try await URLSession.shared.bytes(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw URLError(.badServerResponse)
-        }
-
-        guard (200...299).contains(httpResponse.statusCode) else {
-            // Read error body for diagnostics
-            var errorBody = ""
-            for try await line in bytes.lines {
-                errorBody += line
-            }
-            throw NSError(domain: "ClaudeAPI", code: httpResponse.statusCode,
-                          userInfo: [NSLocalizedDescriptionKey: "HTTP \(httpResponse.statusCode): \(errorBody)"])
-        }
-
-        // Streaming state
-        var inputTokens = 0
-        var outputTokens = 0
-        var textContent = ""
-        var toolCalls: [ToolCall] = []
-        var stopReason = "end_turn"
-
-        // Current content block tracking
-        var currentBlockType: String?
-        var currentToolId: String?
-        var currentToolName: String?
-        var currentToolInputJson = ""
-
-        for try await line in bytes.lines {
-            guard line.hasPrefix("data: ") else { continue }
-            let jsonString = String(line.dropFirst(6))
-            guard jsonString != "[DONE]",
-                  let data = jsonString.data(using: .utf8),
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let eventType = json["type"] as? String
-            else { continue }
-
-            switch eventType {
-            case "message_start":
-                if let message = json["message"] as? [String: Any],
-                   let usage = message["usage"] as? [String: Any],
-                   let input = usage["input_tokens"] as? Int {
-                    inputTokens = input
-                }
-
-            case "content_block_start":
-                if let contentBlock = json["content_block"] as? [String: Any],
-                   let blockType = contentBlock["type"] as? String {
-                    currentBlockType = blockType
-                    if blockType == "tool_use" {
-                        currentToolId = contentBlock["id"] as? String
-                        currentToolName = contentBlock["name"] as? String
-                        currentToolInputJson = ""
-                    }
-                }
-
-            case "content_block_delta":
-                if let delta = json["delta"] as? [String: Any],
-                   let deltaType = delta["type"] as? String {
-                    switch deltaType {
-                    case "text_delta":
-                        if let text = delta["text"] as? String {
-                            textContent += text
-                            await MainActor.run { onTextChunk(text) }
-                        }
-                    case "input_json_delta":
-                        if let partialJson = delta["partial_json"] as? String {
-                            currentToolInputJson += partialJson
-                        }
-                    default:
-                        break
-                    }
-                }
-
-            case "content_block_stop":
-                if currentBlockType == "tool_use",
-                   let toolId = currentToolId,
-                   let toolName = currentToolName {
-                    // Parse the accumulated JSON input
-                    let parsedInput: [String: Any]
-                    if let jsonData = currentToolInputJson.data(using: .utf8),
-                       let parsed = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] {
-                        parsedInput = parsed
-                    } else {
-                        parsedInput = [:]
-                    }
-                    toolCalls.append(ToolCall(id: toolId, name: toolName, input: parsedInput))
-                }
-                // Reset block tracking
-                currentBlockType = nil
-                currentToolId = nil
-                currentToolName = nil
-                currentToolInputJson = ""
-
-            case "message_delta":
-                if let delta = json["delta"] as? [String: Any],
-                   let reason = delta["stop_reason"] as? String {
-                    stopReason = reason
-                }
-                if let usage = json["usage"] as? [String: Any],
-                   let output = usage["output_tokens"] as? Int {
-                    outputTokens = output
-                }
-
-            default:
-                break
-            }
-        }
-
-        return StreamResult(
-            textContent: textContent,
-            toolCalls: toolCalls,
-            stopReason: stopReason,
-            inputTokens: inputTokens,
-            outputTokens: outputTokens
-        )
-    }
-}
-
-struct Message: Identifiable {
-    let id: UUID
-    let role: Role
-    let content: String
-    let timestamp: Date
-    
-    init(id: UUID = UUID(), role: Role, content: String, timestamp: Date = Date()) {
-        self.id = id
-        self.role = role
-        self.content = content
-        self.timestamp = timestamp
-    }
-    
-    enum Role {
-        case user
-        case assistant
-    }
-}
-
-// MARK: - Notification Names
-extension Notification.Name {
-    static let newChat = Notification.Name("newChat")
-    static let clearChat = Notification.Name("clearChat")
-    static let deleteChat = Notification.Name("deleteChat")
-    static let selectModel = Notification.Name("selectModel")
-    static let showAPIKeySettings = Notification.Name("showAPIKeySettings")
-}
-
 struct ContentView: View {
     @State private var selectedChat: String? = "Scratch Pad"
     @State private var messageText: String = ""
@@ -662,13 +102,11 @@ struct ContentView: View {
             chatView
         }
         .task {
-            // Initialize database if we have an API key
             if claudeService.hasAPIKey {
                 initializeDatabase()
             }
         }
         .onChange(of: needsAPIKey) { oldValue, newValue in
-            // When API key is saved, initialize database
             if oldValue == true && newValue == false {
                 initializeDatabase()
             }
@@ -723,12 +161,13 @@ struct ContentView: View {
             .interactiveDismissDisabled(true)
         }
         .task {
-            // Check for API key FIRST, before anything else
             if !claudeService.hasAPIKey {
                 needsAPIKey = true
             }
         }
     }
+    
+    // MARK: - Helpers
     
     private func friendlyTime(from date: Date) -> String {
         let seconds = Date().timeIntervalSince(date)
@@ -750,6 +189,15 @@ struct ContentView: View {
             return lhs.lastUpdated > rhs.lastUpdated
         }
     }
+    
+    private func calculateCost() -> String {
+        let inputCost = Double(totalInputTokens) / 1_000_000.0 * selectedModel.inputCostPerMillion
+        let outputCost = Double(totalOutputTokens) / 1_000_000.0 * selectedModel.outputCostPerMillion
+        let totalCost = inputCost + outputCost
+        return String(format: "%.4f", totalCost)
+    }
+    
+    // MARK: - Chat Detail View
     
     private var chatView: some View {
         VStack(spacing: 0) {
@@ -1085,7 +533,6 @@ struct ContentView: View {
 
         Task {
             do {
-                // Build API messages from persisted history (simple string content)
                 var apiMessages: [[String: Any]] = messages.map { msg in
                     [
                         "role": msg.role == .user ? "user" : "assistant",
@@ -1100,7 +547,6 @@ struct ContentView: View {
                 var iteration = 0
                 let maxIterations = 5
 
-                // Tool loop: stream, check for tool calls, execute, repeat
                 while iteration < maxIterations {
                     iteration += 1
 
@@ -1118,12 +564,10 @@ struct ContentView: View {
                     totalStreamInputTokens += result.inputTokens
                     totalStreamOutputTokens += result.outputTokens
 
-                    // If no tool calls, we're done
                     if result.stopReason == "end_turn" || result.toolCalls.isEmpty {
                         break
                     }
 
-                    // Build the assistant's response as structured content blocks
                     var assistantContent: [[String: Any]] = []
                     if !result.textContent.isEmpty {
                         assistantContent.append(["type": "text", "text": result.textContent])
@@ -1138,10 +582,8 @@ struct ContentView: View {
                     }
                     apiMessages.append(["role": "assistant", "content": assistantContent])
 
-                    // Execute each tool and collect results
                     var toolResults: [[String: Any]] = []
                     for toolCall in result.toolCalls {
-                        // Show tool activity in UI
                         let displayName: String
                         switch toolCall.name {
                         case "search_web":
@@ -1170,10 +612,8 @@ struct ContentView: View {
                         ])
                     }
 
-                    // Add tool results as a user message (Claude API convention)
                     apiMessages.append(["role": "user", "content": toolResults])
 
-                    // Clear tool indicator and add separator for next streaming iteration
                     await MainActor.run {
                         toolActivityMessage = nil
                         if !fullResponse.isEmpty {
@@ -1183,7 +623,6 @@ struct ContentView: View {
                     }
                 }
 
-                // Finalize
                 totalInputTokens += totalStreamInputTokens
                 totalOutputTokens += totalStreamOutputTokens
 
@@ -1221,13 +660,6 @@ struct ContentView: View {
                 print("Claude API Error: \(error)")
             }
         }
-    }
-    
-    private func calculateCost() -> String {
-        let inputCost = Double(totalInputTokens) / 1_000_000.0 * selectedModel.inputCostPerMillion
-        let outputCost = Double(totalOutputTokens) / 1_000_000.0 * selectedModel.outputCostPerMillion
-        let totalCost = inputCost + outputCost
-        return String(format: "%.4f", totalCost)
     }
 }
 
