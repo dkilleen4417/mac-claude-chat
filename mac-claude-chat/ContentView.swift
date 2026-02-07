@@ -41,7 +41,7 @@ struct ContentView: View {
     @State private var newChatName: String = ""
     @State private var streamingMessageId: UUID?
     @State private var streamingContent: String = ""
-    @State private var selectedModel: ClaudeModel = .fast
+    @State private var selectedModel: ClaudeModel = .turbo
     @State private var showingAPIKeySetup: Bool = false
     @State private var needsAPIKey: Bool = false
     @State private var toolActivityMessage: String?
