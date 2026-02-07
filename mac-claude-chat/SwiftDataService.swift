@@ -4,6 +4,9 @@
 //
 //  Created by Drew on 2/6/26.
 //
+//  Updated for CloudKit compatibility — uses safeMessages accessor
+//  for the optional relationship on ChatSession.
+//
 
 import Foundation
 import SwiftData
@@ -31,7 +34,7 @@ class SwiftDataService {
             timestamp: message.timestamp
         )
         chatMessage.session = session
-        session.messages.append(chatMessage)
+        session.safeMessages.append(chatMessage)
         session.lastUpdated = Date()
         
         try modelContext.save()
@@ -46,7 +49,7 @@ class SwiftDataService {
             return []
         }
         
-        return session.messages
+        return session.safeMessages
             .sorted { $0.timestamp < $1.timestamp }
             .map { chatMessage in
                 Message(
@@ -97,6 +100,16 @@ class SwiftDataService {
     }
     
     func createChat(name: String) throws {
+        // CloudKit: no unique constraint, so check for duplicates in app logic
+        let descriptor = FetchDescriptor<ChatSession>(
+            predicate: #Predicate { $0.chatId == name }
+        )
+        
+        if try modelContext.fetch(descriptor).first != nil {
+            // Chat already exists — skip creation
+            return
+        }
+        
         let session = ChatSession(
             chatId: name,
             totalInputTokens: 0,
@@ -135,5 +148,45 @@ class SwiftDataService {
             modelContext.delete(session)
             try modelContext.save()
         }
+    }
+    
+    // MARK: - CloudKit Deduplication
+    
+    /// Merges duplicate ChatSessions that can arise when multiple devices
+    /// create the same chatId before CloudKit syncs (no unique constraint).
+    /// Keeps the oldest session, moves messages from duplicates into it.
+    func deduplicateSessions() throws {
+        let descriptor = FetchDescriptor<ChatSession>()
+        let allSessions = try modelContext.fetch(descriptor)
+        
+        // Group by chatId
+        var grouped: [String: [ChatSession]] = [:]
+        for session in allSessions {
+            grouped[session.chatId, default: []].append(session)
+        }
+        
+        for (_, sessions) in grouped where sessions.count > 1 {
+            // Sort by lastUpdated — keep the oldest (first created)
+            let sorted = sessions.sorted { $0.lastUpdated < $1.lastUpdated }
+            let keeper = sorted[0]
+            
+            for duplicate in sorted.dropFirst() {
+                // Move messages from duplicate to keeper
+                for message in duplicate.safeMessages {
+                    message.session = keeper
+                    keeper.safeMessages.append(message)
+                }
+                // Accumulate tokens
+                keeper.totalInputTokens += duplicate.totalInputTokens
+                keeper.totalOutputTokens += duplicate.totalOutputTokens
+                // Preserve isDefault flag
+                if duplicate.isDefault { keeper.isDefault = true }
+                // Remove the duplicate (without cascade since we moved messages)
+                duplicate.messages = []
+                modelContext.delete(duplicate)
+            }
+        }
+        
+        try modelContext.save()
     }
 }

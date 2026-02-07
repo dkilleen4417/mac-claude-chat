@@ -4,22 +4,28 @@
 //
 //  Created by Drew on 2/5/26.
 //
+//  CloudKit-compatible SwiftData models.
+//  Requirements: no @Attribute(.unique), all properties have defaults,
+//  all relationships are optional.
+//
 
 import Foundation
 import SwiftData
 
-// MARK: - SwiftData Persistent Models
+// MARK: - SwiftData Persistent Models (CloudKit-Compatible)
 
 @Model
 final class ChatSession {
-    @Attribute(.unique) var chatId: String
-    var totalInputTokens: Int
-    var totalOutputTokens: Int
-    var lastUpdated: Date
-    var isDefault: Bool
+    // CloudKit: removed @Attribute(.unique) — uniqueness enforced in app logic
+    var chatId: String = ""
+    var totalInputTokens: Int = 0
+    var totalOutputTokens: Int = 0
+    var lastUpdated: Date = Date()
+    var isDefault: Bool = false
     
+    // CloudKit: relationship must be optional
     @Relationship(deleteRule: .cascade, inverse: \ChatMessage.session)
-    var messages: [ChatMessage]
+    var messages: [ChatMessage]? = []
     
     init(
         chatId: String,
@@ -36,15 +42,22 @@ final class ChatSession {
         self.isDefault = isDefault
         self.messages = messages
     }
+    
+    /// Safe accessor for messages (unwraps optional for CloudKit compatibility)
+    var safeMessages: [ChatMessage] {
+        get { messages ?? [] }
+        set { messages = newValue }
+    }
 }
 
 @Model
 final class ChatMessage {
-    var messageId: String
-    var role: String
-    var content: String
-    var timestamp: Date
+    var messageId: String = ""
+    var role: String = ""
+    var content: String = ""
+    var timestamp: Date = Date()
     
+    // CloudKit: already optional — good
     var session: ChatSession?
     
     init(

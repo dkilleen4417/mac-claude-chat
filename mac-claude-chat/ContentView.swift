@@ -419,6 +419,13 @@ struct ContentView: View {
     // MARK: - Database Operations
     
     private func initializeDatabase() {
+        // CloudKit: merge any duplicate sessions from multi-device creation
+        do {
+            try dataService.deduplicateSessions()
+        } catch {
+            print("Deduplication check: \(error)")
+        }
+        
         ensureScratchPadExists()
         loadAllChats()
         
