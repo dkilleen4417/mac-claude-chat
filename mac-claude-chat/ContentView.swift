@@ -45,7 +45,10 @@ struct ContentView: View {
     @State private var showingAPIKeySetup: Bool = false
     @State private var needsAPIKey: Bool = false
     @State private var toolActivityMessage: String?
-    
+    @State private var renamingChatId: String?
+    @State private var renameChatText: String = ""
+    @State private var showUnderConstruction: Bool = false
+
     @Environment(\.modelContext) private var modelContext
     private let claudeService = ClaudeService()
     
@@ -85,25 +88,67 @@ struct ContentView: View {
         NavigationSplitView {
             VStack(spacing: 0) {
                 HStack {
+                    Text("Chats")
+                        .font(.headline)
+                    
+                    Spacer()
+                    
                     Button(action: {
                         showingNewChatDialog = true
                     }) {
-                        Label("New Chat", systemImage: "plus.circle.fill")
-                            .frame(maxWidth: .infinity)
+                        Image(systemName: "square.and.pencil")
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.borderless)
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 
-                Divider()
-                
                 List(sortedChats, id: \.id, selection: $selectedChat) { chat in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(chat.name)
-                        Text(friendlyTime(from: chat.lastUpdated))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(chat.name)
+                            Text(friendlyTime(from: chat.lastUpdated))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Spacer()
+
+                        Menu {
+                            if !chat.isDefault {
+                                Button {
+                                    renamingChatId = chat.id
+                                    renameChatText = chat.name
+                                } label: {
+                                    Label("Rename", systemImage: "pencil")
+                                }
+                            }
+
+                            Button {
+                                showUnderConstruction = true
+                            } label: {
+                                Label("Star", systemImage: "star")
+                            }
+
+                            Button {
+                                showUnderConstruction = true
+                            } label: {
+                                Label("Add to Project", systemImage: "folder")
+                            }
+
+                            if !chat.isDefault {
+                                Divider()
+                                Button(role: .destructive) {
+                                    deleteChat(chat)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.borderless)
                     }
                     .padding(.vertical, 4)
                     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
@@ -147,6 +192,27 @@ struct ContentView: View {
             .disabled(newChatName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         } message: {
             Text("Enter a name for the new chat")
+        }
+        .alert("Rename Chat", isPresented: Binding(
+            get: { renamingChatId != nil },
+            set: { if !$0 { renamingChatId = nil } }
+        )) {
+            TextField("Chat Name", text: $renameChatText)
+            Button("Cancel", role: .cancel) {
+                renamingChatId = nil
+                renameChatText = ""
+            }
+            Button("Rename") {
+                renameCurrentChat()
+            }
+            .disabled(renameChatText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        } message: {
+            Text("Enter a new name for the chat")
+        }
+        .alert("Under Construction", isPresented: $showUnderConstruction) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text("This feature is coming soon.")
         }
         .onReceive(NotificationCenter.default.publisher(for: .newChat)) { _ in
             showingNewChatDialog = true
@@ -385,21 +451,24 @@ struct ContentView: View {
             
             Divider()
             
-            HStack(spacing: 12) {
-                TextField("Type your message...", text: $messageText, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .lineLimit(1...10)
-                    .padding(10)
-                    .background(PlatformColor.textBackground)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.gray.opacity(0.3), lineWidth: 1)
-                    )
-                    .onSubmit {
-                        sendMessage()
-                    }
-                
+            HStack(alignment: .bottom, spacing: 12) {
+                ScrollView {
+                    TextField("Type your message...", text: $messageText, axis: .vertical)
+                        .textFieldStyle(.plain)
+                        .lineLimit(1...20)
+                        .padding(10)
+                        .onSubmit {
+                            sendMessage()
+                        }
+                }
+                .frame(maxHeight: 200)
+                .background(PlatformColor.textBackground)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                )
+
                 Button("Send") {
                     sendMessage()
                 }
@@ -477,16 +546,37 @@ struct ContentView: View {
     
     private func deleteChat(_ chat: ChatInfo) {
         guard !chat.isDefault else { return }
-        
+
         do {
             try dataService.deleteChat(chat.id)
             loadAllChats()
-            
+
             if selectedChat == chat.id {
                 selectedChat = "Scratch Pad"
             }
         } catch {
             errorMessage = "Failed to delete chat: \(error.localizedDescription)"
+        }
+    }
+
+    private func renameCurrentChat() {
+        guard let oldId = renamingChatId else { return }
+        let newName = renameChatText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !newName.isEmpty else { return }
+
+        do {
+            try dataService.renameChat(from: oldId, to: newName)
+            loadAllChats()
+
+            // Update selection if this was the selected chat
+            if selectedChat == oldId {
+                selectedChat = newName
+            }
+
+            renamingChatId = nil
+            renameChatText = ""
+        } catch {
+            errorMessage = "Failed to rename chat: \(error.localizedDescription)"
         }
     }
     

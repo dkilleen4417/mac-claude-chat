@@ -202,12 +202,15 @@ It cannot be deleted, only cleared.
 
 The entire interface is a single `NavigationSplitView`:
 
-- **Sidebar**: Chat list sorted with Scratch Pad pinned first, then by recency.
-  New Chat button at top. Swipe-to-delete on non-default chats.
+- **Sidebar**: Header bar with "Chats" title and compose icon (square.and.pencil).
+  Chat list sorted with Scratch Pad pinned first, then by recency. Each chat row
+  has a three-dot context menu with Rename, Star (placeholder), Add to Project
+  (placeholder), and Delete options. Swipe-to-delete also available on non-default
+  chats. Chat rename updates the `chatId` in SwiftData via `renameChat()`.
 - **Detail**: Header bar showing model + chat name. Scrolling message list with
   auto-scroll on new content. Streaming content shown in real-time with tool
-  activity indicators. Input bar at bottom with model selector dropdown, token
-  count, cost estimate, and Clear Chat.
+  activity indicators. Input bar at bottom with scrollable text field (max 200pt
+  height), model selector dropdown, token count, cost estimate, and Clear Chat.
 
 Message rendering handles markdown (via `AttributedString(markdown:)`) and
 fenced code blocks (extracted by a custom parser, displayed in monospaced font
@@ -447,7 +450,7 @@ mac-claude-chat/
 │   ├── ContentView.swift              ← all UI + tool loop + message sending
 │   ├── ClaudeService.swift            ← streaming HTTP to Anthropic API
 │   ├── ToolService.swift              ← tool definitions, dispatch, ToolResult, WeatherData, HourlyForecast
-│   ├── SwiftDataService.swift         ← CRUD + CloudKit deduplication
+│   ├── SwiftDataService.swift         ← CRUD + rename + CloudKit deduplication
 │   ├── KeychainService.swift          ← secure API key storage + env fallback
 │   ├── Models.swift                   ← SwiftData models + in-memory types + ClaudeModel enum
 │   ├── APIKeySetupView.swift          ← settings sheet for all API keys

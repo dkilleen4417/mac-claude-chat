@@ -143,11 +143,36 @@ class SwiftDataService {
         let descriptor = FetchDescriptor<ChatSession>(
             predicate: #Predicate { $0.chatId == chatId }
         )
-        
+
         if let session = try modelContext.fetch(descriptor).first {
             modelContext.delete(session)
             try modelContext.save()
         }
+    }
+
+    func renameChat(from oldChatId: String, to newChatId: String) throws {
+        // Check if target name already exists
+        let existingDescriptor = FetchDescriptor<ChatSession>(
+            predicate: #Predicate { $0.chatId == newChatId }
+        )
+        if try modelContext.fetch(existingDescriptor).first != nil {
+            throw NSError(domain: "SwiftDataService", code: 1,
+                         userInfo: [NSLocalizedDescriptionKey: "A chat with that name already exists"])
+        }
+
+        // Find and update the session
+        let descriptor = FetchDescriptor<ChatSession>(
+            predicate: #Predicate { $0.chatId == oldChatId }
+        )
+
+        guard let session = try modelContext.fetch(descriptor).first else {
+            throw NSError(domain: "SwiftDataService", code: 2,
+                         userInfo: [NSLocalizedDescriptionKey: "Chat not found"])
+        }
+
+        session.chatId = newChatId
+        session.lastUpdated = Date()
+        try modelContext.save()
     }
     
     // MARK: - CloudKit Deduplication
