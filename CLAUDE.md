@@ -209,8 +209,10 @@ The entire interface is a single `NavigationSplitView`:
   chats. Chat rename updates the `chatId` in SwiftData via `renameChat()`.
 - **Detail**: Header bar showing model + chat name. Scrolling message list with
   auto-scroll on new content. Streaming content shown in real-time with tool
-  activity indicators. Input bar at bottom with scrollable text field (max 200pt
-  height), model selector dropdown, token count, cost estimate, and Clear Chat.
+  activity indicators. Input bar at bottom uses `SpellCheckingTextEditor` on macOS
+  (NSTextView wrapper with spell checking enabled) or standard TextEditor on iOS.
+  Return sends, Shift+Return inserts newline. Max 200pt height with scrolling.
+  Model selector dropdown, token count, cost estimate, and Clear Chat below.
 
 Message rendering handles markdown (via `AttributedString(markdown:)`) and
 fenced code blocks (extracted by a custom parser, displayed in monospaced font
@@ -316,25 +318,64 @@ This project uses a two-phase workflow that divides planning from implementation
 
 ## Directive Tiers for Xcode Agent
 
-When handing work to the Xcode Claude Agent, match directive detail to complexity:
+When handing work to the Xcode Claude Agent, match directive detail to complexity.
+
+**Key principle:** The Xcode agent is a highly capable Claude instance integrated
+into Apple's IDE. It can explore the project, read every file, build, see compiler
+errors, view SwiftUI previews, consult Apple documentation, and iterate
+autonomously. Directives should describe *what* to build and *why* — not *how* to
+write the code. The agent writes better Swift from intent than from pre-baked
+code blocks.
+
+**Historical note:** The `directives/` folder contains detailed "cascade" directives
+from early development when a less capable model was implementing code in Cursor
+without a build-test loop. Those directives included exact find/replace blocks and
+line numbers because the implementing agent couldn't iterate. **Do not use those
+as templates.** They reflect a workflow that no longer applies.
+
+### Writing Effective Directives (Claude.ai guidance)
+
+When Claude.ai constructs a directive for the Xcode agent:
+
+1. **State the goal clearly** — what capability should exist when this is done?
+2. **Explain the *why*** — what's the reasoning behind the approach? What problem
+   does this solve? The agent makes better decisions with context.
+3. **Name the constraints** — what patterns to follow, what not to break, what
+   files are involved, what platform differences matter.
+4. **Describe verification** — how does Drew (or the agent) confirm it works?
+   List the test scenarios, not the implementation steps.
+5. **Skip the code** — don't write find/replace blocks or exact Swift code unless
+   the directive involves a specific algorithm, API contract, or data format that
+   the agent couldn't infer from the codebase. The agent can read the project and
+   write idiomatic Swift that fits the existing patterns.
 
 ### Tier 1 — Goal Only (routine features, UI tweaks)
 > "Add a button to export the current chat as a markdown file."
 
 The agent explores the project, finds patterns, builds, previews, iterates.
+Use for anything where the codebase already has clear patterns to follow.
 
-### Tier 2 — Goal + Constraints (features with architectural opinions)
-> "Add a chat export button in the header bar next to the model selector.
-> Use NSSavePanel on macOS. Format messages with emoji role indicators
-> (🧠/😎) matching the existing MessageBubble style. Include token counts
-> and cost in a footer."
+### Tier 2 — Goal + Constraints + Verification (the default tier)
+> "Add a three-dot context menu to each chat row in the sidebar. Include Rename
+> (functional — update chatId in SwiftData), Star and Add to Project (show
+> 'Under Construction' alert), and Delete (reuse existing deleteChat). Don't
+> show Delete or Rename on the Scratch Pad. Keep existing swipe-to-delete.
+> Follow existing alert patterns in ContentView."
 
-Drew's engineering judgment steers *where things go* and *what patterns to follow*.
+This is the sweet spot for most work. Drew's engineering judgment steers the
+design; the agent handles implementation. Include the *what*, *where*, *why*,
+and *what to verify* — not the *how*.
 
-### Tier 3 — Detailed Specification (novel architecture, complex systems)
-> See `directives/` folder for examples. Use when introducing new subsystems,
-> protocols, or patterns that don't yet exist in the codebase. Even here,
-> describe the *design* and let the agent handle the build-error-fix cycle.
+### Tier 3 — Architectural Specification (novel systems only)
+Use only when introducing entirely new subsystems, protocols, API integrations,
+or patterns that don't yet exist anywhere in the codebase. Even here, describe
+the *design and architecture* (data flow, API contracts, type structures) and
+let the agent handle the build-error-fix cycle. Don't write the implementation.
+
+Examples that warrant Tier 3: adding the tool-calling loop for the first time,
+introducing CloudKit sync, designing a new embedded marker pattern. These need
+architectural decisions documented because the agent has no existing pattern to
+follow.
 
 ---
 

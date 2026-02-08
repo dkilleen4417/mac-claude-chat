@@ -18,7 +18,7 @@ enum PlatformColor {
         Color(.systemBackground)
         #endif
     }
-    
+
     static var textBackground: Color {
         #if os(macOS)
         Color(nsColor: .textBackgroundColor)
@@ -27,6 +27,101 @@ enum PlatformColor {
         #endif
     }
 }
+
+// MARK: - Spell-Checking Text Editor
+
+#if os(macOS)
+/// NSTextView wrapper that enables spell checking on macOS
+/// (SwiftUI's TextEditor has a known bug where spell checking doesn't work)
+struct SpellCheckingTextEditor: NSViewRepresentable {
+    @Binding var text: String
+    var onReturn: (() -> Void)?
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSScrollView()
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+        scrollView.borderType = .noBorder
+        scrollView.drawsBackground = false
+
+        let textView = NSTextView()
+        textView.delegate = context.coordinator
+        textView.isRichText = false
+        textView.font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        textView.textColor = NSColor.labelColor
+        textView.backgroundColor = .clear
+        textView.drawsBackground = false
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.textContainerInset = NSSize(width: 4, height: 8)
+        textView.autoresizingMask = [.width]
+
+        // Enable spell checking
+        textView.isContinuousSpellCheckingEnabled = true
+        textView.isGrammarCheckingEnabled = true
+        textView.isAutomaticSpellingCorrectionEnabled = false  // Show red underlines, don't auto-correct
+
+        textView.allowsUndo = true
+        textView.string = text
+
+        if let textContainer = textView.textContainer {
+            textContainer.widthTracksTextView = true
+            textContainer.containerSize = NSSize(width: scrollView.contentSize.width, height: .greatestFiniteMagnitude)
+        }
+
+        scrollView.documentView = textView
+        context.coordinator.textView = textView
+
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        guard let textView = scrollView.documentView as? NSTextView else { return }
+        if textView.string != text {
+            let selectedRanges = textView.selectedRanges
+            textView.string = text
+            textView.selectedRanges = selectedRanges
+        }
+    }
+
+    class Coordinator: NSObject, NSTextViewDelegate {
+        var parent: SpellCheckingTextEditor
+        weak var textView: NSTextView?
+
+        init(_ parent: SpellCheckingTextEditor) {
+            self.parent = parent
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            parent.text = textView.string
+        }
+
+        func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            // Handle Return key to send message (Shift+Return inserts newline)
+            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+                let event = NSApp.currentEvent
+                let shiftPressed = event?.modifierFlags.contains(.shift) ?? false
+                let optionPressed = event?.modifierFlags.contains(.option) ?? false
+
+                if !shiftPressed && !optionPressed {
+                    // Plain Return: send message
+                    parent.onReturn?()
+                    return true  // We handled it
+                }
+                // Shift+Return or Option+Return: let it insert a newline
+                return false
+            }
+            return false
+        }
+    }
+}
+#endif
 
 struct ContentView: View {
     @State private var selectedChat: String? = "Scratch Pad"
@@ -452,16 +547,32 @@ struct ContentView: View {
             Divider()
             
             HStack(alignment: .bottom, spacing: 12) {
-                ScrollView {
-                    TextField("Type your message...", text: $messageText, axis: .vertical)
-                        .textFieldStyle(.plain)
-                        .lineLimit(1...20)
-                        .padding(10)
-                        .onSubmit {
-                            sendMessage()
-                        }
+                ZStack(alignment: .topLeading) {
+                    #if os(macOS)
+                    // macOS: Use NSTextView wrapper for proper spell checking
+                    SpellCheckingTextEditor(text: $messageText) {
+                        sendMessage()
+                    }
+                    .frame(minHeight: 36, maxHeight: 200)
+                    #else
+                    // iOS: Use standard TextEditor
+                    TextEditor(text: $messageText)
+                        .font(.body)
+                        .scrollContentBackground(.hidden)
+                        .padding(6)
+                        .frame(minHeight: 36, maxHeight: 200)
+                        .fixedSize(horizontal: false, vertical: true)
+                    #endif
+
+                    // Placeholder text overlay
+                    if messageText.isEmpty {
+                        Text("Type your message...")
+                            .foregroundStyle(.tertiary)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 14)
+                            .allowsHitTesting(false)
+                    }
                 }
-                .frame(maxHeight: 200)
                 .background(PlatformColor.textBackground)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .overlay(
