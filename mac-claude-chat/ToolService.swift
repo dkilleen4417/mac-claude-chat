@@ -14,6 +14,84 @@ struct ToolCall {
     let input: [String: Any]
 }
 
+/// Hourly forecast entry for card rendering
+struct HourlyForecast: Codable {
+    let hour: String        // e.g., "Now", "10 PM", "11 PM"
+    let temp: Double
+    let conditions: String
+    let iconCode: String    // OWM icon code (e.g., "02n", "01d")
+    let pop: Double         // probability of precipitation (0.0–1.0)
+
+    /// SF Symbol name derived from OWM icon code
+    var symbolName: String {
+        Self.sfSymbol(for: iconCode)
+    }
+
+    /// Map OWM icon codes to SF Symbols with day/night variants
+    static func sfSymbol(for iconCode: String) -> String {
+        let base = String(iconCode.prefix(2))
+        let isNight = iconCode.hasSuffix("n")
+
+        switch base {
+        case "01": return isNight ? "moon.fill" : "sun.max.fill"
+        case "02": return isNight ? "cloud.moon.fill" : "cloud.sun.fill"
+        case "03": return "cloud.fill"
+        case "04": return "smoke.fill"
+        case "09": return "cloud.drizzle.fill"
+        case "10": return isNight ? "cloud.moon.rain.fill" : "cloud.rain.fill"
+        case "11": return "cloud.bolt.rain.fill"
+        case "13": return "cloud.snow.fill"
+        case "50": return "cloud.fog.fill"
+        default:   return "cloud.fill"
+        }
+    }
+}
+
+/// Structured weather data for card rendering
+struct WeatherData: Codable {
+    let city: String
+    let temp: Double
+    let feelsLike: Double
+    let conditions: String
+    let humidity: Int
+    let windSpeed: Double
+    let iconCode: String            // OWM icon code for current conditions
+    let high: Double?               // daily high from daily[0]
+    let low: Double?                // daily low from daily[0]
+    let hourlyForecast: [HourlyForecast]  // next 6 hours
+
+    /// SF Symbol name for current conditions
+    var symbolName: String {
+        HourlyForecast.sfSymbol(for: iconCode)
+    }
+}
+
+/// Tool execution result — plain text for the LLM, optional structured data for the UI
+enum ToolResult {
+    case plain(String)
+    case weather(text: String, data: WeatherData)
+
+    /// The string sent back to Claude as tool_result content
+    var textForLLM: String {
+        switch self {
+        case .plain(let text): return text
+        case .weather(let text, _): return text
+        }
+    }
+
+    /// JSON marker to embed in the saved message, if any
+    var embeddedMarker: String? {
+        switch self {
+        case .plain: return nil
+        case .weather(_, let data):
+            guard let json = try? JSONEncoder().encode(data),
+                  let jsonString = String(data: json, encoding: .utf8)
+            else { return nil }
+            return "<!--weather:\(jsonString)-->"
+        }
+    }
+}
+
 /// Result of a streaming API call, including any tool calls
 struct StreamResult {
     let textContent: String
@@ -83,19 +161,19 @@ enum ToolService {
     // MARK: - Tool Dispatch
 
     /// Execute a tool by name with the given input parameters.
-    /// Returns the tool result as a string (never throws — errors become result strings).
-    static func executeTool(name: String, input: [String: Any]) async -> String {
+    /// Returns a ToolResult with text for Claude and optional structured data for the UI.
+    static func executeTool(name: String, input: [String: Any]) async -> ToolResult {
         switch name {
         case "get_datetime":
-            return getDatetime()
+            return .plain(getDatetime())
         case "search_web":
             let query = input["query"] as? String ?? ""
-            return await searchWeb(query: query)
+            return .plain(await searchWeb(query: query))
         case "get_weather":
             let location = input["location"] as? String ?? ""
             return await getWeather(location: location)
         default:
-            return "Unknown tool: \(name)"
+            return .plain("Unknown tool: \(name)")
         }
     }
 
@@ -176,10 +254,10 @@ enum ToolService {
         }
     }
 
-    /// Get current weather from OpenWeatherMap
-    private static func getWeather(location: String) async -> String {
+    /// Get current weather from OpenWeatherMap One Call API 3.0
+    private static func getWeather(location: String) async -> ToolResult {
         guard let apiKey = KeychainService.getOWMKey() else {
-            return "Weather not available — OpenWeatherMap API key not configured."
+            return .plain("Weather not available — OpenWeatherMap API key not configured.")
         }
 
         // Default to Catonsville if empty
@@ -204,58 +282,118 @@ enum ToolService {
 
             guard let geoHttp = geoResponse as? HTTPURLResponse,
                   (200...299).contains(geoHttp.statusCode) else {
-                return "Geocoding failed for '\(resolvedLocation)'."
+                return .plain("Geocoding failed for '\(resolvedLocation)'.")
             }
 
             guard let geoArray = try JSONSerialization.jsonObject(with: geoData) as? [[String: Any]],
                   let firstResult = geoArray.first,
                   let lat = firstResult["lat"] as? Double,
                   let lon = firstResult["lon"] as? Double else {
-                return "Location '\(resolvedLocation)' not found."
+                return .plain("Location '\(resolvedLocation)' not found.")
             }
 
             let cityName = firstResult["name"] as? String ?? resolvedLocation
 
-            // Step 2: Get weather data
-            var weatherComponents = URLComponents(string: "https://api.openweathermap.org/data/2.5/weather")!
+            // Step 2: Get weather data via One Call API 3.0
+            var weatherComponents = URLComponents(string: "https://api.openweathermap.org/data/3.0/onecall")!
             weatherComponents.queryItems = [
                 URLQueryItem(name: "lat", value: String(lat)),
                 URLQueryItem(name: "lon", value: String(lon)),
                 URLQueryItem(name: "appid", value: apiKey),
-                URLQueryItem(name: "units", value: "imperial")
+                URLQueryItem(name: "units", value: "imperial"),
+                URLQueryItem(name: "exclude", value: "minutely")
             ]
 
             let (weatherData, weatherResponse) = try await URLSession.shared.data(from: weatherComponents.url!)
 
             guard let weatherHttp = weatherResponse as? HTTPURLResponse,
                   (200...299).contains(weatherHttp.statusCode) else {
-                return "Weather request failed."
+                let statusCode = (weatherResponse as? HTTPURLResponse)?.statusCode ?? 0
+                return .plain("Weather request failed with HTTP \(statusCode).")
             }
 
             guard let weatherJson = try JSONSerialization.jsonObject(with: weatherData) as? [String: Any] else {
-                return "Failed to parse weather data."
+                return .plain("Failed to parse weather data.")
             }
 
-            // Extract weather fields
-            let weather = (weatherJson["weather"] as? [[String: Any]])?.first
-            let description = (weather?["description"] as? String ?? "Unknown").capitalized
-            let main = weatherJson["main"] as? [String: Any] ?? [:]
-            let temp = main["temp"] as? Double ?? 0
-            let feelsLike = main["feels_like"] as? Double ?? 0
-            let humidity = main["humidity"] as? Int ?? 0
-            let wind = weatherJson["wind"] as? [String: Any] ?? [:]
-            let windSpeed = wind["speed"] as? Double ?? 0
+            // Extract current conditions from "current" object
+            let current = weatherJson["current"] as? [String: Any] ?? [:]
+            let currentWeather = (current["weather"] as? [[String: Any]])?.first
+            let description = (currentWeather?["description"] as? String ?? "Unknown").capitalized
+            let currentIconCode = currentWeather?["icon"] as? String ?? "03d"
+            let temp = current["temp"] as? Double ?? 0
+            let feelsLike = current["feels_like"] as? Double ?? 0
+            let humidity = current["humidity"] as? Int ?? 0
+            let windSpeed = current["wind_speed"] as? Double ?? 0
 
-            return """
-                Current Weather for \(cityName):
-                • Conditions: \(description)
-                • Temperature: \(String(format: "%.1f", temp))°F (feels like \(String(format: "%.1f", feelsLike))°F)
-                • Humidity: \(humidity)%
-                • Wind Speed: \(String(format: "%.1f", windSpeed)) mph
-                """
+            // Extract daily high/low from daily[0]
+            let dailyArray = weatherJson["daily"] as? [[String: Any]] ?? []
+            var high: Double?
+            var low: Double?
+            if let today = dailyArray.first,
+               let dailyTemp = today["temp"] as? [String: Any] {
+                high = dailyTemp["max"] as? Double
+                low = dailyTemp["min"] as? Double
+            }
+
+            // Extract next 6 hours from hourly array
+            let hourlyArray = weatherJson["hourly"] as? [[String: Any]] ?? []
+            let hourFormatter = DateFormatter()
+            hourFormatter.dateFormat = "h a"
+            hourFormatter.timeZone = TimeZone(identifier: "America/New_York")
+
+            var hourlyForecasts: [HourlyForecast] = []
+            for (index, entry) in hourlyArray.prefix(6).enumerated() {
+                let dt = entry["dt"] as? Int ?? 0
+                let hourDate = Date(timeIntervalSince1970: TimeInterval(dt))
+                let hourLabel = index == 0 ? "Now" : hourFormatter.string(from: hourDate)
+
+                let hourTemp = entry["temp"] as? Double ?? 0
+                let hourWeather = (entry["weather"] as? [[String: Any]])?.first
+                let hourConditions = (hourWeather?["description"] as? String ?? "Unknown").capitalized
+                let hourIcon = hourWeather?["icon"] as? String ?? "03d"
+                let hourPop = entry["pop"] as? Double ?? 0
+
+                hourlyForecasts.append(HourlyForecast(
+                    hour: hourLabel,
+                    temp: hourTemp,
+                    conditions: hourConditions,
+                    iconCode: hourIcon,
+                    pop: hourPop
+                ))
+            }
+
+            // Plain text for Claude (includes high/low)
+            var textLines = [
+                "Current Weather for \(cityName):",
+                "• Conditions: \(description)",
+                "• Temperature: \(String(format: "%.1f", temp))°F (feels like \(String(format: "%.1f", feelsLike))°F)"
+            ]
+            if let high = high, let low = low {
+                textLines.append("• High: \(String(format: "%.0f", high))°F / Low: \(String(format: "%.0f", low))°F")
+            }
+            textLines.append("• Humidity: \(humidity)%")
+            textLines.append("• Wind Speed: \(String(format: "%.1f", windSpeed)) mph")
+            let textForLLM = textLines.joined(separator: "\n")
+
+            // Structured data for UI card
+            let weatherCardData = WeatherData(
+                city: cityName,
+                temp: temp,
+                feelsLike: feelsLike,
+                conditions: description,
+                humidity: humidity,
+                windSpeed: windSpeed,
+                iconCode: currentIconCode,
+                high: high,
+                low: low,
+                hourlyForecast: hourlyForecasts
+            )
+
+            return .weather(text: textForLLM, data: weatherCardData)
 
         } catch {
-            return "Weather error: \(error.localizedDescription)"
+            return .plain("Weather error: \(error.localizedDescription)")
         }
     }
 }

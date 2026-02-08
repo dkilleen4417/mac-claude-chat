@@ -247,7 +247,7 @@ struct ContentView: View {
             
             ScrollViewReader { proxy in
                 ScrollView {
-                    VStack(spacing: 16) {
+                    VStack(spacing: 24) {
                         if messages.isEmpty {
                             Text("Chat messages will appear here")
                                 .foregroundStyle(.secondary)
@@ -262,7 +262,7 @@ struct ContentView: View {
                             if let streamingId = streamingMessageId, !streamingContent.isEmpty {
                                 HStack(alignment: .top, spacing: 8) {
                                     Text("🧠")
-                                        .font(.title2)
+                                        .font(.body)
                                     
                                     MarkdownMessageView(content: streamingContent)
                                     
@@ -287,7 +287,7 @@ struct ContentView: View {
                             if isLoading && streamingContent.isEmpty && toolActivityMessage == nil {
                                 HStack {
                                     Text("🧠")
-                                        .font(.title2)
+                                        .font(.body)
                                     ProgressView()
                                         .controlSize(.small)
                                         .padding(.horizontal, 12)
@@ -298,6 +298,8 @@ struct ContentView: View {
                         }
                     }
                     .padding()
+                    .frame(maxWidth: 720, alignment: .center)
+                    .frame(maxWidth: .infinity, alignment: .center)
                 }
                 .scrollDismissesKeyboard(.interactively)
                 .onChange(of: messages.count) { _, _ in
@@ -576,6 +578,7 @@ struct ContentView: View {
                 var totalStreamOutputTokens = 0
                 var iteration = 0
                 let maxIterations = 5
+                var collectedMarkers: [String] = []
 
                 while iteration < maxIterations {
                     iteration += 1
@@ -635,11 +638,16 @@ struct ContentView: View {
                             name: toolCall.name,
                             input: toolCall.input
                         )
+                        // Send plain text to Claude
                         toolResults.append([
                             "type": "tool_result",
                             "tool_use_id": toolCall.id,
-                            "content": toolResult
+                            "content": toolResult.textForLLM
                         ])
+                        // Collect any embedded markers for later
+                        if let marker = toolResult.embeddedMarker {
+                            collectedMarkers.append(marker)
+                        }
                     }
 
                     apiMessages.append(["role": "user", "content": toolResults])
@@ -656,10 +664,12 @@ struct ContentView: View {
                 totalInputTokens += totalStreamInputTokens
                 totalOutputTokens += totalStreamOutputTokens
 
+                // Prepend any collected markers to the saved message content
+                let markerPrefix = collectedMarkers.isEmpty ? "" : collectedMarkers.joined(separator: "\n") + "\n"
                 let assistantMessage = Message(
                     id: assistantMessageId,
                     role: .assistant,
-                    content: fullResponse,
+                    content: markerPrefix + fullResponse,
                     timestamp: Date()
                 )
 
@@ -706,7 +716,7 @@ struct MessageBubble: View {
             
             if message.role == .assistant {
                 Text("🧠")
-                    .font(.title2)
+                    .font(.body)
             }
             
             if message.role == .assistant {
@@ -715,15 +725,15 @@ struct MessageBubble: View {
                 Text(message.content)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
-                    .background(Color.blue)
-                    .foregroundColor(.white)
+                    .background(Color.accentColor.opacity(0.15))
+                    .foregroundColor(.primary)
                     .clipShape(RoundedRectangle(cornerRadius: 12))
                     .textSelection(.enabled)
             }
             
             if message.role == .user {
                 Text("😎")
-                    .font(.title2)
+                    .font(.body)
             }
             
             if message.role == .assistant {
@@ -737,9 +747,46 @@ struct MessageBubble: View {
 
 struct MarkdownMessageView: View {
     let content: String
-    
+
+    /// Parsed weather data from embedded markers
+    private var weatherData: [WeatherData] {
+        var results: [WeatherData] = []
+        let pattern = "<!--weather:(.+?)-->"
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+            return results
+        }
+        let range = NSRange(content.startIndex..., in: content)
+        let matches = regex.matches(in: content, options: [], range: range)
+        for match in matches {
+            if let jsonRange = Range(match.range(at: 1), in: content) {
+                let jsonString = String(content[jsonRange])
+                if let jsonData = jsonString.data(using: .utf8),
+                   let data = try? JSONDecoder().decode(WeatherData.self, from: jsonData) {
+                    results.append(data)
+                }
+            }
+        }
+        return results
+    }
+
+    /// Content with markers stripped out
+    private var cleanedContent: String {
+        let pattern = "<!--weather:.+?-->\n?"
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+            return content
+        }
+        let range = NSRange(content.startIndex..., in: content)
+        return regex.stringByReplacingMatches(in: content, options: [], range: range, withTemplate: "")
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 12) {
+            // Render weather cards first
+            ForEach(Array(weatherData.enumerated()), id: \.offset) { _, data in
+                WeatherCardView(data: data)
+            }
+
+            // Then render the text content
             ForEach(parseContent(), id: \.id) { block in
                 switch block.type {
                 case .codeBlock(let language):
@@ -761,10 +808,7 @@ struct MarkdownMessageView: View {
                 }
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(Color.gray.opacity(0.2))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .lineSpacing(4)
     }
     
     private func parseContent() -> [MessageContentBlock] {
@@ -774,8 +818,9 @@ struct MarkdownMessageView: View {
         var codeBlockContent = ""
         var codeLanguage = ""
         var blockId = 0
-        
-        let lines = content.components(separatedBy: "\n")
+
+        // Use cleaned content (markers stripped)
+        let lines = cleanedContent.components(separatedBy: "\n")
         
         for line in lines {
             if line.hasPrefix("```") {
@@ -851,7 +896,7 @@ struct MessageContentBlock {
 struct CodeBlockView: View {
     let code: String
     let language: String
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             if !language.isEmpty {
@@ -861,7 +906,7 @@ struct CodeBlockView: View {
                     .padding(.horizontal, 8)
                     .padding(.top, 4)
             }
-            
+
             ScrollView(.horizontal, showsIndicators: true) {
                 Text(code)
                     .font(.system(.body, design: .monospaced))
@@ -875,6 +920,63 @@ struct CodeBlockView: View {
                 .stroke(Color.gray.opacity(0.3), lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+// MARK: - Weather Card View
+
+struct WeatherCardView: View {
+    let data: WeatherData
+
+    private var iconColor: Color {
+        let lower = data.conditions.lowercased()
+        if lower.contains("clear") || lower.contains("sunny") {
+            return .yellow
+        } else if lower.contains("rain") || lower.contains("drizzle") || lower.contains("shower") {
+            return .blue
+        } else if lower.contains("snow") {
+            return .cyan
+        } else if lower.contains("thunder") || lower.contains("storm") {
+            return .purple
+        }
+        return .gray
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // City name
+            Text(data.city)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            // Main row: icon + temperature
+            HStack(alignment: .center, spacing: 12) {
+                Image(systemName: data.symbolName)
+                    .font(.system(size: 40))
+                    .foregroundStyle(iconColor)
+                    .symbolRenderingMode(.hierarchical)
+
+                Text("\(Int(round(data.temp)))°")
+                    .font(.system(size: 48, weight: .light))
+            }
+
+            // Conditions
+            Text(data.conditions)
+                .font(.title3)
+
+            // Details row
+            Text("Feels like \(Int(round(data.feelsLike)))° • Humidity \(data.humidity)% • Wind \(String(format: "%.0f", data.windSpeed)) mph")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.gray.opacity(0.2), lineWidth: 1)
+        )
     }
 }
 

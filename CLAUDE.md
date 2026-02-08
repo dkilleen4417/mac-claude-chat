@@ -47,7 +47,7 @@ built from Foundation and SwiftUI primitives.
 └──────────────┬───────────────────────────────────┘
                │
 ┌──────────────▼───────────────────────────────────┐
-│  ContentView.swift (~600 lines)                  │
+│  ContentView.swift (~950 lines)                  │
 │  The entire UI lives here:                       │
 │  - NavigationSplitView (sidebar + detail)        │
 │  - Chat list management                          │
@@ -56,7 +56,7 @@ built from Foundation and SwiftUI primitives.
 │  - Tool activity indicators                      │
 │  - The agentic tool loop (sendMessage)           │
 │  Also contains: MessageBubble, MarkdownMessage,  │
-│  CodeBlockView as supporting views               │
+│  CodeBlockView, WeatherCardView                  │
 └──────┬──────────┬──────────┬─────────────────────┘
        │          │          │
 ┌──────▼───┐ ┌───▼─────┐ ┌──▼──────────────┐
@@ -146,10 +146,32 @@ Current tools:
 - **search_web** — Conditional on Tavily API key. Uses Tavily's advanced search
   with AI summary. Returns up to 6 results.
 - **get_weather** — Conditional on OpenWeatherMap key. Two-step: geocode location,
-  then fetch weather. Defaults to Catonsville, MD. Imperial units.
+  then fetch current weather. Defaults to Catonsville, MD. Imperial units.
+  Returns structured data for rich UI card rendering.
 
 Tool definitions are only included in API requests when their keys are present
 (checked via KeychainService at call time, not at app startup).
+
+### Rich Tool Results — The Embedded Marker Pattern
+
+Tools can return both plain text (for Claude) and structured data (for the UI).
+This is handled by the `ToolResult` enum:
+
+- `.plain(String)` — Text-only result (datetime, search, errors)
+- `.weather(text:data:)` — Text for Claude + `WeatherData` struct for the card
+
+When a tool returns structured data, the tool loop:
+1. Sends the plain text to Claude as the `tool_result` content
+2. Collects the structured data as a JSON marker: `<!--weather:{...}-->`
+3. Prepends all markers to the saved message content
+
+The `MarkdownMessageView` parser detects these markers, extracts the JSON,
+renders the appropriate card view (e.g., `WeatherCardView`), then strips the
+marker before rendering the text. This persists naturally in SwiftData — no
+schema changes, no CloudKit compatibility issues.
+
+This pattern is extensible: new tools can define their own marker prefix
+(e.g., `<!--search:...-->`) and card view, following the same flow.
 
 ### SwiftData + CloudKit Sync
 
@@ -184,7 +206,15 @@ The entire interface is a single `NavigationSplitView`:
 
 Message rendering handles markdown (via `AttributedString(markdown:)`) and
 fenced code blocks (extracted by a custom parser, displayed in monospaced font
-with language labels and horizontal scrolling).
+with language labels and horizontal scrolling). Rich tool results (like weather)
+render as inline cards above Claude's prose response.
+
+The UI follows a Gemini-inspired clean aesthetic:
+- Assistant messages sit directly on the canvas (no bubble background)
+- User messages use a soft accent-color tint (15% opacity) instead of solid blue
+- Message content is constrained to 720px max width and centered
+- Increased spacing (24pt) between messages for better readability
+- Smaller, subtler role indicator emojis (🧠/😎)
 
 macOS menu commands (New Chat, Clear Chat, Delete Chat, Model Selection, API Key
 Settings) are wired through `NotificationCenter` because SwiftUI's menu command
@@ -230,8 +260,19 @@ client. Multi-provider support was previously explored but has been abandoned �
 the app's focus is on being the best Claude client it can be, not a generic
 LLM frontend.
 
-Areas open for development: new tools, UI refinements, and deeper integration
-with Apple platform capabilities.
+Recent additions:
+- **Rich weather cards** — Weather tool results display as visual cards with
+  SF Symbol icons, temperature, conditions, and details. The embedded marker
+  pattern enables this without SwiftData schema changes.
+- **Cleaner UI** — Gemini-inspired layout with unbubbled assistant messages,
+  softer user bubbles, constrained content width, and more breathing room.
+
+Areas open for development:
+- **Multi-day forecast** — Current weather API returns only current conditions.
+  Upgrading to OWM's 5-day forecast endpoint would enable richer cards.
+- **Rich search results** — Apply the same marker pattern to web search for
+  card-based result display.
+- **Apple platform integration** — Shortcuts, widgets, Siri.
 
 ---
 
@@ -393,7 +434,7 @@ mac-claude-chat/
 │   ├── mac_claude_chatApp.swift       ← @main, WindowGroup, menu commands
 │   ├── ContentView.swift              ← all UI + tool loop + message sending
 │   ├── ClaudeService.swift            ← streaming HTTP to Anthropic API
-│   ├── ToolService.swift              ← tool definitions, dispatch, execution
+│   ├── ToolService.swift              ← tool definitions, dispatch, ToolResult, WeatherData
 │   ├── SwiftDataService.swift         ← CRUD + CloudKit deduplication
 │   ├── KeychainService.swift          ← secure API key storage + env fallback
 │   ├── Models.swift                   ← SwiftData models + in-memory types + ClaudeModel enum
