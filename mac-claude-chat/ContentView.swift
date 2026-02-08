@@ -28,6 +28,15 @@ enum PlatformColor {
     }
 }
 
+// MARK: - Input Height Preference Key (for iOS auto-sizing)
+
+struct InputHeightPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 36
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
 // MARK: - Spell-Checking Text Editor
 
 #if os(macOS)
@@ -35,6 +44,7 @@ enum PlatformColor {
 /// (SwiftUI's TextEditor has a known bug where spell checking doesn't work)
 struct SpellCheckingTextEditor: NSViewRepresentable {
     @Binding var text: String
+    @Binding var contentHeight: CGFloat
     var onReturn: (() -> Void)?
 
     func makeCoordinator() -> Coordinator {
@@ -77,6 +87,11 @@ struct SpellCheckingTextEditor: NSViewRepresentable {
         scrollView.documentView = textView
         context.coordinator.textView = textView
 
+        // Calculate initial height
+        DispatchQueue.main.async {
+            context.coordinator.updateContentHeight()
+        }
+
         return scrollView
     }
 
@@ -86,6 +101,10 @@ struct SpellCheckingTextEditor: NSViewRepresentable {
             let selectedRanges = textView.selectedRanges
             textView.string = text
             textView.selectedRanges = selectedRanges
+            // Update height when text is set externally (e.g., cleared after send)
+            DispatchQueue.main.async {
+                context.coordinator.updateContentHeight()
+            }
         }
     }
 
@@ -100,6 +119,27 @@ struct SpellCheckingTextEditor: NSViewRepresentable {
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
             parent.text = textView.string
+            updateContentHeight()
+        }
+
+        func updateContentHeight() {
+            guard let textView = textView,
+                  let layoutManager = textView.layoutManager,
+                  let textContainer = textView.textContainer else { return }
+
+            // Ensure layout is complete
+            layoutManager.ensureLayout(for: textContainer)
+
+            // Get the used rect for the text
+            let usedRect = layoutManager.usedRect(for: textContainer)
+
+            // Add text container inset (top + bottom = 8 + 8 = 16)
+            let totalHeight = usedRect.height + textView.textContainerInset.height * 2
+
+            // Update the binding
+            DispatchQueue.main.async {
+                self.parent.contentHeight = max(36, totalHeight)
+            }
         }
 
         func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
@@ -126,6 +166,7 @@ struct SpellCheckingTextEditor: NSViewRepresentable {
 struct ContentView: View {
     @State private var selectedChat: String? = "Scratch Pad"
     @State private var messageText: String = ""
+    @State private var inputHeight: CGFloat = 36  // Dynamic input height
     @State private var messages: [Message] = []
     @State private var isLoading: Bool = false
     @State private var totalInputTokens: Int = 0
@@ -550,18 +591,33 @@ struct ContentView: View {
                 ZStack(alignment: .topLeading) {
                     #if os(macOS)
                     // macOS: Use NSTextView wrapper for proper spell checking
-                    SpellCheckingTextEditor(text: $messageText) {
+                    SpellCheckingTextEditor(text: $messageText, contentHeight: $inputHeight) {
                         sendMessage()
                     }
-                    .frame(minHeight: 36, maxHeight: 200)
+                    .frame(height: min(max(inputHeight, 36), 200))
                     #else
-                    // iOS: Use standard TextEditor
+                    // iOS: Use hidden Text to measure content height, then size TextEditor
+                    Text(messageText.isEmpty ? " " : messageText)
+                        .font(.body)
+                        .padding(6)
+                        .opacity(0)
+                        .background(
+                            GeometryReader { geometry in
+                                Color.clear.preference(
+                                    key: InputHeightPreferenceKey.self,
+                                    value: geometry.size.height
+                                )
+                            }
+                        )
+                        .onPreferenceChange(InputHeightPreferenceKey.self) { height in
+                            inputHeight = max(36, height)
+                        }
+                    
                     TextEditor(text: $messageText)
                         .font(.body)
                         .scrollContentBackground(.hidden)
                         .padding(6)
-                        .frame(minHeight: 36, maxHeight: 200)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(height: min(max(inputHeight, 36), 200))
                     #endif
 
                     // Placeholder text overlay
@@ -579,6 +635,7 @@ struct ContentView: View {
                     RoundedRectangle(cornerRadius: 8)
                         .stroke(Color.gray.opacity(0.3), lineWidth: 1)
                 )
+                .animation(.easeInOut(duration: 0.15), value: inputHeight)
 
                 Button("Send") {
                     sendMessage()
@@ -998,7 +1055,7 @@ struct MarkdownMessageView: View {
                             if line.isEmpty {
                                 Spacer().frame(height: 8)
                             } else if let attributedString = try? AttributedString(markdown: line) {
-                                Text(attributedString)
+                                Text(styleInlineCode(attributedString))
                                     .textSelection(.enabled)
                             } else {
                                 Text(line)
@@ -1081,6 +1138,22 @@ struct MarkdownMessageView: View {
         
         return blocks
     }
+    
+    /// Enhances inline code spans with visible background styling
+    private func styleInlineCode(_ input: AttributedString) -> AttributedString {
+        var result = input
+        
+        // Find runs with inline code presentation intent and style them
+        for run in result.runs {
+            if let inlineIntent = run.inlinePresentationIntent, inlineIntent.contains(.code) {
+                let range = run.range
+                result[range].font = .system(.body, design: .monospaced)
+                result[range].backgroundColor = Color.gray.opacity(0.2)
+            }
+        }
+        
+        return result
+    }
 }
 
 struct MessageContentBlock {
@@ -1094,33 +1167,515 @@ struct MessageContentBlock {
     }
 }
 
+// MARK: - Syntax Highlighter
+
+/// Regex-based syntax highlighter for code blocks
+/// Supports Python, Swift, JavaScript/TypeScript, JSON, Bash, and generic fallback
+enum SyntaxHighlighter {
+    
+    // MARK: - Color Palette (Dracula-inspired for dark backgrounds)
+    
+    static let keyword = Color(red: 1.0, green: 0.475, blue: 0.776)      // Pink #FF79C6
+    static let string = Color(red: 0.314, green: 0.98, blue: 0.482)      // Green #50FA7B
+    static let comment = Color(red: 0.384, green: 0.447, blue: 0.643)    // Gray #6272A4
+    static let number = Color(red: 1.0, green: 0.722, blue: 0.424)       // Orange #FFB86C
+    static let type = Color(red: 0.545, green: 0.914, blue: 0.992)       // Cyan #8BE9FD
+    static let function = Color(red: 0.4, green: 0.85, blue: 0.937)      // Blue #66D9EF
+    static let decorator = Color(red: 0.945, green: 0.98, blue: 0.549)   // Yellow #F1FA8C
+    static let defaultText = Color(red: 0.973, green: 0.973, blue: 0.949) // Light #F8F8F2
+    
+    // MARK: - Language Detection
+    
+    enum Language {
+        case python, swift, javascript, json, bash, generic
+    }
+    
+    static func detectLanguage(_ hint: String) -> Language {
+        switch hint.lowercased() {
+        case "python", "py": return .python
+        case "swift": return .swift
+        case "javascript", "js", "typescript", "ts", "jsx", "tsx": return .javascript
+        case "json": return .json
+        case "bash", "sh", "shell", "zsh": return .bash
+        default: return .generic
+        }
+    }
+    
+    // MARK: - Main Highlighting Entry Point
+    
+    static func highlight(_ code: String, language: String) -> AttributedString {
+        let lang = detectLanguage(language)
+        var result = AttributedString()
+        
+        let lines = code.components(separatedBy: "\n")
+        for (index, line) in lines.enumerated() {
+            result.append(highlightLine(line, language: lang))
+            if index < lines.count - 1 {
+                result.append(AttributedString("\n"))
+            }
+        }
+        
+        return result
+    }
+    
+    // MARK: - Line-by-Line Highlighting
+    
+    private static func highlightLine(_ line: String, language: Language) -> AttributedString {
+        // Start with default-colored text
+        var attributed = AttributedString(line)
+        attributed.foregroundColor = defaultText
+        
+        guard !line.isEmpty else { return attributed }
+        
+        // Build token ranges with their colors
+        var tokens: [(range: Range<String.Index>, color: Color)] = []
+        
+        // Apply patterns based on language
+        switch language {
+        case .python:
+            tokens.append(contentsOf: findComments(in: line, style: .hash))
+            tokens.append(contentsOf: findStrings(in: line, includeTripleQuotes: true))
+            tokens.append(contentsOf: findDecorators(in: line, prefix: "@"))
+            tokens.append(contentsOf: findKeywords(in: line, keywords: pythonKeywords))
+            tokens.append(contentsOf: findNumbers(in: line))
+            tokens.append(contentsOf: findTypes(in: line))
+            tokens.append(contentsOf: findFunctionCalls(in: line))
+            
+        case .swift:
+            tokens.append(contentsOf: findComments(in: line, style: .slashSlash))
+            tokens.append(contentsOf: findStrings(in: line, includeTripleQuotes: true))
+            tokens.append(contentsOf: findDecorators(in: line, prefix: "@"))
+            tokens.append(contentsOf: findKeywords(in: line, keywords: swiftKeywords))
+            tokens.append(contentsOf: findNumbers(in: line))
+            tokens.append(contentsOf: findTypes(in: line))
+            tokens.append(contentsOf: findFunctionCalls(in: line))
+            
+        case .javascript:
+            tokens.append(contentsOf: findComments(in: line, style: .slashSlash))
+            tokens.append(contentsOf: findStrings(in: line, includeTripleQuotes: false))
+            tokens.append(contentsOf: findTemplateStrings(in: line))
+            tokens.append(contentsOf: findKeywords(in: line, keywords: jsKeywords))
+            tokens.append(contentsOf: findNumbers(in: line))
+            tokens.append(contentsOf: findTypes(in: line))
+            tokens.append(contentsOf: findFunctionCalls(in: line))
+            
+        case .json:
+            tokens.append(contentsOf: findJsonKeys(in: line))
+            tokens.append(contentsOf: findStrings(in: line, includeTripleQuotes: false))
+            tokens.append(contentsOf: findNumbers(in: line))
+            tokens.append(contentsOf: findKeywords(in: line, keywords: ["true", "false", "null"]))
+            
+        case .bash:
+            tokens.append(contentsOf: findComments(in: line, style: .hash))
+            tokens.append(contentsOf: findStrings(in: line, includeTripleQuotes: false))
+            tokens.append(contentsOf: findBashVariables(in: line))
+            tokens.append(contentsOf: findKeywords(in: line, keywords: bashKeywords))
+            
+        case .generic:
+            tokens.append(contentsOf: findComments(in: line, style: .any))
+            tokens.append(contentsOf: findStrings(in: line, includeTripleQuotes: false))
+            tokens.append(contentsOf: findNumbers(in: line))
+        }
+        
+        // Sort tokens by start position (earlier first), then by length (longer first for overlaps)
+        let sortedTokens = tokens.sorted { a, b in
+            if a.range.lowerBound != b.range.lowerBound {
+                return a.range.lowerBound < b.range.lowerBound
+            }
+            return line.distance(from: a.range.lowerBound, to: a.range.upperBound) >
+                   line.distance(from: b.range.lowerBound, to: b.range.upperBound)
+        }
+        
+        // Apply colors, skipping overlapping ranges
+        var coveredRanges: [Range<String.Index>] = []
+        
+        for token in sortedTokens {
+            // Check if this range overlaps with any already-covered range
+            let overlaps = coveredRanges.contains { covered in
+                token.range.overlaps(covered)
+            }
+            
+            if !overlaps {
+                // Convert String.Index range to AttributedString range
+                if let attrRange = Range(token.range, in: attributed) {
+                    attributed[attrRange].foregroundColor = token.color
+                }
+                coveredRanges.append(token.range)
+            }
+        }
+        
+        return attributed
+    }
+    
+    // MARK: - Token Finders
+    
+    private enum CommentStyle { case hash, slashSlash, any }
+    
+    private static func findComments(in line: String, style: CommentStyle) -> [(Range<String.Index>, Color)] {
+        var results: [(Range<String.Index>, Color)] = []
+        
+        let patterns: [String]
+        switch style {
+        case .hash: patterns = ["#.*$"]
+        case .slashSlash: patterns = ["//.*$"]
+        case .any: patterns = ["#.*$", "//.*$"]
+        }
+        
+        for pattern in patterns {
+            if let regex = try? NSRegularExpression(pattern: pattern, options: []),
+               let match = regex.firstMatch(in: line, options: [], range: NSRange(line.startIndex..., in: line)),
+               let range = Range(match.range, in: line) {
+                results.append((range, comment))
+            }
+        }
+        
+        return results
+    }
+    
+    private static func findStrings(in line: String, includeTripleQuotes: Bool) -> [(Range<String.Index>, Color)] {
+        var results: [(Range<String.Index>, Color)] = []
+        
+        // Pattern for double and single quoted strings (handles escapes)
+        let patterns = [
+            "\"(?:[^\"\\\\]|\\\\.)*\"",  // Double quoted
+            "'(?:[^'\\\\]|\\\\.)*'"       // Single quoted
+        ]
+        
+        for pattern in patterns {
+            if let regex = try? NSRegularExpression(pattern: pattern, options: []) {
+                let matches = regex.matches(in: line, options: [], range: NSRange(line.startIndex..., in: line))
+                for match in matches {
+                    if let range = Range(match.range, in: line) {
+                        results.append((range, string))
+                    }
+                }
+            }
+        }
+        
+        return results
+    }
+    
+    private static func findTemplateStrings(in line: String) -> [(Range<String.Index>, Color)] {
+        var results: [(Range<String.Index>, Color)] = []
+        
+        // Backtick template strings
+        let pattern = "`[^`]*`"
+        if let regex = try? NSRegularExpression(pattern: pattern, options: []) {
+            let matches = regex.matches(in: line, options: [], range: NSRange(line.startIndex..., in: line))
+            for match in matches {
+                if let range = Range(match.range, in: line) {
+                    results.append((range, string))
+                }
+            }
+        }
+        
+        return results
+    }
+    
+    private static func findDecorators(in line: String, prefix: String) -> [(Range<String.Index>, Color)] {
+        var results: [(Range<String.Index>, Color)] = []
+        
+        let pattern = "\(prefix)\\w+"
+        if let regex = try? NSRegularExpression(pattern: pattern, options: []) {
+            let matches = regex.matches(in: line, options: [], range: NSRange(line.startIndex..., in: line))
+            for match in matches {
+                if let range = Range(match.range, in: line) {
+                    results.append((range, decorator))
+                }
+            }
+        }
+        
+        return results
+    }
+    
+    private static func findKeywords(in line: String, keywords: [String]) -> [(Range<String.Index>, Color)] {
+        var results: [(Range<String.Index>, Color)] = []
+        
+        for kw in keywords {
+            let pattern = "\\b\(NSRegularExpression.escapedPattern(for: kw))\\b"
+            if let regex = try? NSRegularExpression(pattern: pattern, options: []) {
+                let matches = regex.matches(in: line, options: [], range: NSRange(line.startIndex..., in: line))
+                for match in matches {
+                    if let range = Range(match.range, in: line) {
+                        results.append((range, keyword))
+                    }
+                }
+            }
+        }
+        
+        return results
+    }
+    
+    private static func findNumbers(in line: String) -> [(Range<String.Index>, Color)] {
+        var results: [(Range<String.Index>, Color)] = []
+        
+        // Match integers, floats, hex, and negative numbers
+        let pattern = "\\b-?(?:0x[0-9a-fA-F]+|\\d+\\.?\\d*(?:[eE][+-]?\\d+)?)\\b"
+        if let regex = try? NSRegularExpression(pattern: pattern, options: []) {
+            let matches = regex.matches(in: line, options: [], range: NSRange(line.startIndex..., in: line))
+            for match in matches {
+                if let range = Range(match.range, in: line) {
+                    results.append((range, number))
+                }
+            }
+        }
+        
+        return results
+    }
+    
+    private static func findTypes(in line: String) -> [(Range<String.Index>, Color)] {
+        var results: [(Range<String.Index>, Color)] = []
+        
+        // Capitalized identifiers (likely types/classes)
+        let pattern = "\\b[A-Z][a-zA-Z0-9_]*\\b"
+        if let regex = try? NSRegularExpression(pattern: pattern, options: []) {
+            let matches = regex.matches(in: line, options: [], range: NSRange(line.startIndex..., in: line))
+            for match in matches {
+                if let range = Range(match.range, in: line) {
+                    results.append((range, type))
+                }
+            }
+        }
+        
+        return results
+    }
+    
+    private static func findFunctionCalls(in line: String) -> [(Range<String.Index>, Color)] {
+        var results: [(Range<String.Index>, Color)] = []
+        
+        // Identifier followed by (
+        let pattern = "\\b([a-z_][a-zA-Z0-9_]*)\\s*\\("
+        if let regex = try? NSRegularExpression(pattern: pattern, options: []) {
+            let matches = regex.matches(in: line, options: [], range: NSRange(line.startIndex..., in: line))
+            for match in matches {
+                // Capture group 1 is the function name
+                if match.numberOfRanges > 1, let range = Range(match.range(at: 1), in: line) {
+                    results.append((range, function))
+                }
+            }
+        }
+        
+        return results
+    }
+    
+    private static func findJsonKeys(in line: String) -> [(Range<String.Index>, Color)] {
+        var results: [(Range<String.Index>, Color)] = []
+        
+        // Keys are strings followed by :
+        let pattern = "\"[^\"]+\"\\s*:"
+        if let regex = try? NSRegularExpression(pattern: pattern, options: []) {
+            let matches = regex.matches(in: line, options: [], range: NSRange(line.startIndex..., in: line))
+            for match in matches {
+                if let range = Range(match.range, in: line) {
+                    // Exclude the colon from highlighting - find the closing quote
+                    if let keyEndClosed = line[range].lastIndex(of: "\"") {
+                        let keyStart = range.lowerBound
+                        let keyEnd = line.index(after: keyEndClosed)  // Convert to exclusive upper bound
+                        if keyStart < keyEnd {
+                            let keyRange = keyStart..<keyEnd
+                            results.append((keyRange, type))  // Use type color for keys
+                        }
+                    }
+                }
+            }
+        }
+        
+        return results
+    }
+    
+    private static func findBashVariables(in line: String) -> [(Range<String.Index>, Color)] {
+        var results: [(Range<String.Index>, Color)] = []
+        
+        // $VAR or ${VAR}
+        let patterns = ["\\$\\{?[a-zA-Z_][a-zA-Z0-9_]*\\}?"]
+        for pattern in patterns {
+            if let regex = try? NSRegularExpression(pattern: pattern, options: []) {
+                let matches = regex.matches(in: line, options: [], range: NSRange(line.startIndex..., in: line))
+                for match in matches {
+                    if let range = Range(match.range, in: line) {
+                        results.append((range, type))
+                    }
+                }
+            }
+        }
+        
+        return results
+    }
+    
+    // MARK: - Keyword Lists
+    
+    private static let pythonKeywords = [
+        "def", "class", "import", "from", "return", "if", "elif", "else", "for", "while",
+        "try", "except", "finally", "with", "as", "in", "not", "and", "or", "is",
+        "None", "True", "False", "self", "lambda", "yield", "async", "await",
+        "raise", "pass", "break", "continue", "global", "nonlocal", "assert", "del"
+    ]
+    
+    private static let swiftKeywords = [
+        "func", "var", "let", "struct", "class", "enum", "protocol", "extension", "import",
+        "return", "if", "else", "guard", "switch", "case", "default", "for", "while", "repeat",
+        "do", "try", "catch", "throw", "throws", "rethrows", "async", "await",
+        "self", "Self", "nil", "true", "false", "some", "any", "where",
+        "private", "fileprivate", "internal", "public", "open", "static", "final",
+        "override", "mutating", "nonmutating", "lazy", "weak", "unowned",
+        "init", "deinit", "get", "set", "willSet", "didSet", "inout", "typealias",
+        "associatedtype", "subscript", "convenience", "required", "optional", "indirect"
+    ]
+    
+    private static let jsKeywords = [
+        "function", "const", "let", "var", "return", "if", "else", "for", "while", "do",
+        "switch", "case", "default", "break", "continue", "class", "extends", "super",
+        "import", "export", "from", "as", "async", "await", "try", "catch", "finally",
+        "throw", "new", "this", "typeof", "instanceof", "delete", "void", "yield",
+        "null", "undefined", "true", "false", "NaN", "Infinity",
+        "static", "get", "set", "of", "in"
+    ]
+    
+    private static let bashKeywords = [
+        "if", "then", "else", "elif", "fi", "for", "while", "do", "done", "case", "esac",
+        "function", "return", "exit", "break", "continue", "in", "select", "until",
+        "echo", "printf", "read", "export", "local", "declare", "readonly", "unset",
+        "source", "alias", "cd", "pwd", "ls", "cp", "mv", "rm", "mkdir", "rmdir",
+        "cat", "grep", "sed", "awk", "find", "xargs", "test", "true", "false"
+    ]
+}
+
+// MARK: - Code Block View
+
 struct CodeBlockView: View {
     let code: String
     let language: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            if !language.isEmpty {
-                Text(language)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 8)
-                    .padding(.top, 4)
-            }
-
-            ScrollView(.horizontal, showsIndicators: true) {
-                Text(code)
-                    .font(.system(.body, design: .monospaced))
-                    .textSelection(.enabled)
-                    .padding(8)
-            }
+    
+    @State private var copied = false
+    
+    // Dark theme colors
+    private let backgroundColor = Color(red: 0.157, green: 0.165, blue: 0.212)  // #282A36
+    private let headerColor = Color(red: 0.2, green: 0.208, blue: 0.255)        // Slightly lighter
+    private let lineNumberColor = Color(red: 0.55, green: 0.6, blue: 0.7)  // Lighter gray for better contrast
+    
+    /// Nicely formatted language name for display
+    private var displayLanguage: String {
+        switch language.lowercased() {
+        case "python", "py": return "Python"
+        case "swift": return "Swift"
+        case "javascript", "js": return "JavaScript"
+        case "typescript", "ts": return "TypeScript"
+        case "jsx": return "JSX"
+        case "tsx": return "TSX"
+        case "json": return "JSON"
+        case "bash", "sh", "shell", "zsh": return "Bash"
+        case "html": return "HTML"
+        case "css": return "CSS"
+        case "sql": return "SQL"
+        case "rust": return "Rust"
+        case "go": return "Go"
+        case "java": return "Java"
+        case "kotlin": return "Kotlin"
+        case "ruby", "rb": return "Ruby"
+        case "php": return "PHP"
+        case "c": return "C"
+        case "cpp", "c++": return "C++"
+        case "csharp", "c#", "cs": return "C#"
+        case "yaml", "yml": return "YAML"
+        case "xml": return "XML"
+        case "markdown", "md": return "Markdown"
+        default: return language.isEmpty ? "Code" : language.capitalized
         }
-        .background(PlatformColor.textBackground.opacity(0.8))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.gray.opacity(0.3), lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+    
+    private var lines: [String] {
+        code.components(separatedBy: "\n")
+    }
+    
+    private var lineNumberWidth: CGFloat {
+        let maxLineNumber = lines.count
+        let digitCount = String(maxLineNumber).count
+        return CGFloat(digitCount * 10 + 16)  // ~10pt per digit + padding
+    }
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Header bar with language and copy button
+            HStack {
+                Text(displayLanguage)
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .foregroundStyle(.white.opacity(0.7))
+                
+                Spacer()
+                
+                Button(action: copyToClipboard) {
+                    HStack(spacing: 4) {
+                        Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                            .font(.caption)
+                        if copied {
+                            Text("Copied")
+                                .font(.caption)
+                        }
+                    }
+                    .foregroundStyle(copied ? .green : .white.opacity(0.7))
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(headerColor)
+            
+            // Code area with line numbers
+            ScrollView(.horizontal, showsIndicators: true) {
+                HStack(alignment: .top, spacing: 0) {
+                    // Line numbers (fixed, don't scroll horizontally)
+                    VStack(alignment: .trailing, spacing: 0) {
+                        ForEach(Array(lines.enumerated()), id: \.offset) { index, _ in
+                            Text("\(index + 1)")
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundStyle(lineNumberColor)
+                                .frame(height: 20)
+                        }
+                    }
+                    .padding(.leading, 12)
+                    .padding(.trailing, 8)
+                    .padding(.vertical, 12)
+                    .background(backgroundColor)
+                    
+                    // Separator line
+                    Rectangle()
+                        .fill(lineNumberColor.opacity(0.3))
+                        .frame(width: 1)
+                        .padding(.vertical, 8)
+                    
+                    // Highlighted code
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+                            Text(SyntaxHighlighter.highlight(line, language: language))
+                                .font(.system(.body, design: .monospaced))
+                                .frame(height: 20, alignment: .leading)
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 12)
+                    .textSelection(.enabled)
+                }
+            }
+            .background(backgroundColor)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+    
+    private func copyToClipboard() {
+        #if os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(code, forType: .string)
+        #else
+        UIPasteboard.general.string = code
+        #endif
+        
+        copied = true
+        
+        // Reset after 2 seconds
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            copied = false
+        }
     }
 }
 
@@ -1129,27 +1684,79 @@ struct CodeBlockView: View {
 struct WeatherCardView: View {
     let data: WeatherData
 
-    /// Map OWM icon codes to colors
+    /// Condition-aware gradient based on OWM icon code
+    /// All gradients are dark enough for white text readability
+    private var backgroundGradient: LinearGradient {
+        let base = String(data.iconCode.prefix(2))
+        let isNight = data.iconCode.hasSuffix("n")
+
+        let colors: [Color]
+        switch base {
+        case "01":  // Clear
+            colors = isNight
+                ? [Color(red: 0.08, green: 0.12, blue: 0.28), Color(red: 0.12, green: 0.18, blue: 0.38)]
+                : [Color(red: 0.2, green: 0.45, blue: 0.7), Color(red: 0.35, green: 0.55, blue: 0.75)]
+        case "02":  // Few clouds
+            colors = isNight
+                ? [Color(red: 0.12, green: 0.18, blue: 0.35), Color(red: 0.22, green: 0.28, blue: 0.42)]
+                : [Color(red: 0.25, green: 0.5, blue: 0.7), Color(red: 0.4, green: 0.55, blue: 0.7)]
+        case "03", "04":  // Clouds
+            colors = isNight
+                ? [Color(red: 0.2, green: 0.22, blue: 0.26), Color(red: 0.15, green: 0.17, blue: 0.2)]
+                : [Color(red: 0.4, green: 0.45, blue: 0.52), Color(red: 0.5, green: 0.55, blue: 0.6)]
+        case "09", "10":  // Rain
+            colors = isNight
+                ? [Color(red: 0.15, green: 0.2, blue: 0.3), Color(red: 0.1, green: 0.12, blue: 0.18)]
+                : [Color(red: 0.3, green: 0.4, blue: 0.52), Color(red: 0.38, green: 0.45, blue: 0.55)]
+        case "11":  // Thunderstorm
+            colors = isNight
+                ? [Color(red: 0.18, green: 0.12, blue: 0.22), Color(red: 0.1, green: 0.08, blue: 0.14)]
+                : [Color(red: 0.3, green: 0.25, blue: 0.38), Color(red: 0.22, green: 0.2, blue: 0.3)]
+        case "13":  // Snow
+            colors = isNight
+                ? [Color(red: 0.28, green: 0.35, blue: 0.45), Color(red: 0.2, green: 0.28, blue: 0.38)]
+                : [Color(red: 0.4, green: 0.5, blue: 0.62), Color(red: 0.5, green: 0.58, blue: 0.68)]
+        case "50":  // Fog/mist
+            colors = isNight
+                ? [Color(red: 0.25, green: 0.28, blue: 0.32), Color(red: 0.35, green: 0.38, blue: 0.42)]
+                : [Color(red: 0.45, green: 0.5, blue: 0.55), Color(red: 0.55, green: 0.58, blue: 0.62)]
+        default:
+            colors = [Color(red: 0.4, green: 0.45, blue: 0.52), Color(red: 0.5, green: 0.55, blue: 0.6)]
+        }
+
+        return LinearGradient(colors: colors, startPoint: .top, endPoint: .bottom)
+    }
+
+    /// Returns a color for the weather icon based on condition
     private func weatherIconColor(for iconCode: String) -> Color {
         let base = String(iconCode.prefix(2))
+        let isNight = iconCode.hasSuffix("n")
         switch base {
-        case "01": return .yellow        // clear
-        case "02": return .orange        // partly cloudy
+        case "01": return isNight ? .white : Color(red: 1.0, green: 0.85, blue: 0.0)  // bright yellow sun, white moon
+        case "02": return isNight ? .white : Color(red: 1.0, green: 0.85, blue: 0.0)  // yellow sun with clouds too
         case "03", "04": return .gray    // clouds
-        case "09", "10": return .blue    // rain
+        case "09", "10": return .cyan    // rain
         case "11": return .purple        // thunderstorm
-        case "13": return .cyan          // snow
+        case "13": return .white         // snow
         case "50": return .gray          // fog/mist
-        default: return .gray
+        default: return .white
         }
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // City name
-            Text(data.city)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+            // City name + observation time
+            VStack(alignment: .leading, spacing: 2) {
+                Text(data.city)
+                    .font(.headline)
+                    .foregroundStyle(.white)
+
+                if let obsTime = data.formattedObservationTime {
+                    Text("as of \(obsTime)")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.7))
+                }
+            }
 
             // Main row: icon + temperature
             HStack(alignment: .center, spacing: 12) {
@@ -1160,27 +1767,31 @@ struct WeatherCardView: View {
 
                 Text("\(Int(round(data.temp)))°")
                     .font(.system(size: 48, weight: .light))
+                    .foregroundStyle(.white)
             }
 
             // Conditions
             Text(data.conditions)
                 .font(.title3)
+                .foregroundStyle(.white)
 
             // High/Low line (if available)
             if let high = data.high, let low = data.low {
                 Text("High: \(Int(round(high)))°  Low: \(Int(round(low)))°")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.white.opacity(0.8))
             }
 
             // Details row
             Text("Feels like \(Int(round(data.feelsLike)))° • Humidity \(data.humidity)% • Wind \(String(format: "%.0f", data.windSpeed)) mph")
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.white.opacity(0.8))
 
             // Hourly forecast row
             if !data.hourlyForecast.isEmpty {
-                Divider()
+                Rectangle()
+                    .fill(.white.opacity(0.3))
+                    .frame(height: 1)
                     .padding(.vertical, 4)
 
                 HStack(spacing: 0) {
@@ -1189,7 +1800,7 @@ struct WeatherCardView: View {
                             // Hour label
                             Text(entry.hour)
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(.white.opacity(0.8))
 
                             // Weather icon
                             Image(systemName: entry.symbolName)
@@ -1205,11 +1816,12 @@ struct WeatherCardView: View {
                                 Text("\(Int(round(entry.pop * 100)))%")
                             }
                             .font(.caption2)
-                            .foregroundStyle(entry.pop > 0 ? .blue : .secondary)
+                            .foregroundStyle(entry.pop > 0 ? .cyan : .white.opacity(0.6))
 
                             // Temperature
                             Text("\(Int(round(entry.temp)))°F")
                                 .font(.caption)
+                                .foregroundStyle(.white)
                         }
                         .frame(maxWidth: .infinity)
                     }
@@ -1218,12 +1830,8 @@ struct WeatherCardView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.ultraThinMaterial)
+        .background(backgroundGradient)
         .clipShape(RoundedRectangle(cornerRadius: 12))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.gray.opacity(0.2), lineWidth: 1)
-        )
     }
 }
 

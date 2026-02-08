@@ -59,10 +59,22 @@ struct WeatherData: Codable {
     let high: Double?               // daily high from daily[0]
     let low: Double?                // daily low from daily[0]
     let hourlyForecast: [HourlyForecast]  // next 6 hours
+    let observationTime: Int?       // Unix timestamp from current.dt
+    let timezoneOffset: Int?        // UTC offset in seconds from API response
 
     /// SF Symbol name for current conditions
     var symbolName: String {
         HourlyForecast.sfSymbol(for: iconCode)
+    }
+
+    /// Formatted observation time in the location's local timezone
+    var formattedObservationTime: String? {
+        guard let obsTime = observationTime, let offset = timezoneOffset else { return nil }
+        let date = Date(timeIntervalSince1970: TimeInterval(obsTime))
+        let formatter = DateFormatter()
+        formatter.dateFormat = "h:mm a"
+        formatter.timeZone = TimeZone(secondsFromGMT: offset)
+        return formatter.string(from: date)
     }
 }
 
@@ -316,8 +328,12 @@ enum ToolService {
                 return .plain("Failed to parse weather data.")
             }
 
+            // Extract timezone offset from top-level response
+            let timezoneOffset = weatherJson["timezone_offset"] as? Int
+
             // Extract current conditions from "current" object
             let current = weatherJson["current"] as? [String: Any] ?? [:]
+            let observationTime = current["dt"] as? Int
             let currentWeather = (current["weather"] as? [[String: Any]])?.first
             let description = (currentWeather?["description"] as? String ?? "Unknown").capitalized
             let currentIconCode = currentWeather?["icon"] as? String ?? "03d"
@@ -340,7 +356,12 @@ enum ToolService {
             let hourlyArray = weatherJson["hourly"] as? [[String: Any]] ?? []
             let hourFormatter = DateFormatter()
             hourFormatter.dateFormat = "h a"
-            hourFormatter.timeZone = TimeZone(identifier: "America/New_York")
+            // Use the location's timezone for hour labels
+            if let offset = timezoneOffset {
+                hourFormatter.timeZone = TimeZone(secondsFromGMT: offset)
+            } else {
+                hourFormatter.timeZone = TimeZone(identifier: "America/New_York")
+            }
 
             var hourlyForecasts: [HourlyForecast] = []
             for (index, entry) in hourlyArray.prefix(6).enumerated() {
@@ -387,7 +408,9 @@ enum ToolService {
                 iconCode: currentIconCode,
                 high: high,
                 low: low,
-                hourlyForecast: hourlyForecasts
+                hourlyForecast: hourlyForecasts,
+                observationTime: observationTime,
+                timezoneOffset: timezoneOffset
             )
 
             return .weather(text: textForLLM, data: weatherCardData)

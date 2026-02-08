@@ -47,7 +47,7 @@ built from Foundation and SwiftUI primitives.
 └──────────────┬───────────────────────────────────┘
                │
 ┌──────────────▼───────────────────────────────────┐
-│  ContentView.swift (~950 lines)                  │
+│  ContentView.swift (~1800 lines)                 │
 │  The entire UI lives here:                       │
 │  - NavigationSplitView (sidebar + detail)        │
 │  - Chat list management                          │
@@ -56,7 +56,8 @@ built from Foundation and SwiftUI primitives.
 │  - Tool activity indicators                      │
 │  - The agentic tool loop (sendMessage)           │
 │  Also contains: MessageBubble, MarkdownMessage,  │
-│  CodeBlockView, WeatherCardView                  │
+│  CodeBlockView, WeatherCardView,                 │
+│  SpellCheckingTextEditor, SyntaxHighlighter      │
 └──────┬──────────┬──────────┬─────────────────────┘
        │          │          │
 ┌──────▼───┐ ┌───▼─────┐ ┌──▼──────────────┐
@@ -211,13 +212,17 @@ The entire interface is a single `NavigationSplitView`:
   auto-scroll on new content. Streaming content shown in real-time with tool
   activity indicators. Input bar at bottom uses `SpellCheckingTextEditor` on macOS
   (NSTextView wrapper with spell checking enabled) or standard TextEditor on iOS.
-  Return sends, Shift+Return inserts newline. Max 200pt height with scrolling.
-  Model selector dropdown, token count, cost estimate, and Clear Chat below.
+  Return sends, Shift+Return inserts newline. The input area auto-sizes from 36pt
+  (single line) to 200pt max, growing smoothly as the user types. Animation on
+  height change. Model selector dropdown, token count, cost estimate, and Clear
+  Chat below.
 
 Message rendering handles markdown (via `AttributedString(markdown:)`) and
-fenced code blocks (extracted by a custom parser, displayed in monospaced font
-with language labels and horizontal scrolling). Rich tool results (like weather)
-render as inline cards above Claude's prose response.
+fenced code blocks with **syntax highlighting** (Python, Swift, JavaScript, JSON,
+Bash, and generic fallback). Code blocks have a dark theme background, line numbers,
+language label header, and a copy-to-clipboard button. Inline code in prose gets a
+visible background tint. Rich tool results (like weather) render as inline cards
+above Claude's prose response.
 
 The UI follows a Gemini-inspired clean aesthetic:
 - Assistant messages sit directly on the canvas (no bubble background)
@@ -271,17 +276,22 @@ the app's focus is on being the best Claude client it can be, not a generic
 LLM frontend.
 
 Recent additions:
-- **One Call API 3.0 + hourly forecast** — Weather tool uses OWM One Call 3.0,
-  returning current conditions, daily high/low, and 6-hour forecast in a
-  single API call. WeatherCardView displays all this: current temp with
-  high/low, weather icon (day/night variants via icon code mapping), and
-  a horizontal hourly row showing hour label, condition icon, precipitation
-  % (with droplet icon), and temperature (°F).
+- **Syntax-highlighted code blocks** — `SyntaxHighlighter` enum provides regex-based
+  tokenization for Python, Swift, JavaScript/TypeScript, JSON, Bash, with a generic
+  fallback. Dracula-inspired color palette (pink keywords, green strings, gray
+  comments, orange numbers, cyan types). `CodeBlockView` redesigned with dark theme
+  background, line numbers gutter, language label header, and copy-to-clipboard button
+  with "Copied" feedback. Inline code in prose gets monospaced font + gray background.
+- **Dynamic input bar height** — `SpellCheckingTextEditor` reports content height via
+  binding; input bar grows from 36pt to 200pt max as user types, with smooth animation.
+  On iOS, uses hidden `Text` measurement via `GeometryReader`. Resets to compact size
+  after sending.
+- **Weather card gradients** — Condition-aware background gradients (clear blue, cloudy
+  gray, rainy slate, etc.) with day/night variants. Colored weather icons (yellow sun,
+  cyan rain). Observation timestamp display ("as of 3:13 PM").
 - **Rich weather cards** — Weather tool results display as visual cards with
   SF Symbol icons, temperature, conditions, and details. The embedded marker
   pattern enables this without SwiftData schema changes.
-- **Cleaner UI** — Gemini-inspired layout with unbubbled assistant messages,
-  softer user bubbles, constrained content width, and more breathing room.
 
 Areas open for development:
 - **Rich search results** — Apply the same marker pattern to web search for
