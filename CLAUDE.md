@@ -146,8 +146,10 @@ Current tools:
 - **search_web** — Conditional on Tavily API key. Uses Tavily's advanced search
   with AI summary. Returns up to 6 results.
 - **get_weather** — Conditional on OpenWeatherMap key. Two-step: geocode location,
-  then fetch current weather. Defaults to Catonsville, MD. Imperial units.
-  Returns structured data for rich UI card rendering.
+  then fetch weather via One Call API 3.0 (`/data/3.0/onecall`). Returns current
+  conditions, daily high/low, and 6-hour forecast in a single call. Defaults to
+  Catonsville, MD. Imperial units. Returns structured data (`WeatherData` +
+  `HourlyForecast` array) for rich UI card rendering.
 
 Tool definitions are only included in API requests when their keys are present
 (checked via KeychainService at call time, not at app startup).
@@ -158,7 +160,10 @@ Tools can return both plain text (for Claude) and structured data (for the UI).
 This is handled by the `ToolResult` enum:
 
 - `.plain(String)` — Text-only result (datetime, search, errors)
-- `.weather(text:data:)` — Text for Claude + `WeatherData` struct for the card
+- `.weather(text:data:)` — Text for Claude + `WeatherData` struct for the card.
+  `WeatherData` includes current conditions, icon code (for day/night SF Symbol
+  variants), daily high/low, and a `[HourlyForecast]` array (next 6 hours with
+  per-hour temp, conditions, icon code, and precipitation probability).
 
 When a tool returns structured data, the tool loop:
 1. Sends the plain text to Claude as the `tool_result` content
@@ -261,6 +266,12 @@ the app's focus is on being the best Claude client it can be, not a generic
 LLM frontend.
 
 Recent additions:
+- **One Call API 3.0 + hourly forecast** — Weather tool uses OWM One Call 3.0,
+  returning current conditions, daily high/low, and 6-hour forecast in a
+  single API call. WeatherCardView displays all this: current temp with
+  high/low, weather icon (day/night variants via icon code mapping), and
+  a horizontal hourly row showing hour label, condition icon, precipitation
+  % (with droplet icon), and temperature (°F).
 - **Rich weather cards** — Weather tool results display as visual cards with
   SF Symbol icons, temperature, conditions, and details. The embedded marker
   pattern enables this without SwiftData schema changes.
@@ -268,8 +279,6 @@ Recent additions:
   softer user bubbles, constrained content width, and more breathing room.
 
 Areas open for development:
-- **Multi-day forecast** — Current weather API returns only current conditions.
-  Upgrading to OWM's 5-day forecast endpoint would enable richer cards.
 - **Rich search results** — Apply the same marker pattern to web search for
   card-based result display.
 - **Apple platform integration** — Shortcuts, widgets, Siri.
@@ -344,11 +353,14 @@ Drew's engineering judgment steers *where things go* and *what patterns to follo
 
 ## CPB: Commit / Push / Brief
 
-Every meaningful work session ends with CPB — a three-step close-out:
+Every meaningful work session ends with CPB — a three-step close-out,
+**always in this order**:
 
-1. **Commit** — Git commit with a clear message describing what changed.
-2. **Push** — Push to remote.
-3. **Brief** — Update this CLAUDE.md to reflect the current state of the app.
+1. **Brief** — Update this CLAUDE.md to reflect the current state of the app.
+2. **Commit** — Git commit with a clear message describing what changed.
+3. **Push** — Push to remote.
+
+Brief comes first so the CLAUDE.md update is captured in the commit.
 
 These are **explicit commands from Drew** — nothing happens automatically.
 Drew issues one of four commands: `commit`, `push`, `brief`, or `cpb` (all three).
@@ -434,7 +446,7 @@ mac-claude-chat/
 │   ├── mac_claude_chatApp.swift       ← @main, WindowGroup, menu commands
 │   ├── ContentView.swift              ← all UI + tool loop + message sending
 │   ├── ClaudeService.swift            ← streaming HTTP to Anthropic API
-│   ├── ToolService.swift              ← tool definitions, dispatch, ToolResult, WeatherData
+│   ├── ToolService.swift              ← tool definitions, dispatch, ToolResult, WeatherData, HourlyForecast
 │   ├── SwiftDataService.swift         ← CRUD + CloudKit deduplication
 │   ├── KeychainService.swift          ← secure API key storage + env fallback
 │   ├── Models.swift                   ← SwiftData models + in-memory types + ClaudeModel enum

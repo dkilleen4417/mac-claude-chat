@@ -928,18 +928,19 @@ struct CodeBlockView: View {
 struct WeatherCardView: View {
     let data: WeatherData
 
-    private var iconColor: Color {
-        let lower = data.conditions.lowercased()
-        if lower.contains("clear") || lower.contains("sunny") {
-            return .yellow
-        } else if lower.contains("rain") || lower.contains("drizzle") || lower.contains("shower") {
-            return .blue
-        } else if lower.contains("snow") {
-            return .cyan
-        } else if lower.contains("thunder") || lower.contains("storm") {
-            return .purple
+    /// Map OWM icon codes to colors
+    private func weatherIconColor(for iconCode: String) -> Color {
+        let base = String(iconCode.prefix(2))
+        switch base {
+        case "01": return .yellow        // clear
+        case "02": return .orange        // partly cloudy
+        case "03", "04": return .gray    // clouds
+        case "09", "10": return .blue    // rain
+        case "11": return .purple        // thunderstorm
+        case "13": return .cyan          // snow
+        case "50": return .gray          // fog/mist
+        default: return .gray
         }
-        return .gray
     }
 
     var body: some View {
@@ -953,7 +954,7 @@ struct WeatherCardView: View {
             HStack(alignment: .center, spacing: 12) {
                 Image(systemName: data.symbolName)
                     .font(.system(size: 40))
-                    .foregroundStyle(iconColor)
+                    .foregroundStyle(weatherIconColor(for: data.iconCode))
                     .symbolRenderingMode(.hierarchical)
 
                 Text("\(Int(round(data.temp)))°")
@@ -964,10 +965,55 @@ struct WeatherCardView: View {
             Text(data.conditions)
                 .font(.title3)
 
+            // High/Low line (if available)
+            if let high = data.high, let low = data.low {
+                Text("High: \(Int(round(high)))°  Low: \(Int(round(low)))°")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             // Details row
             Text("Feels like \(Int(round(data.feelsLike)))° • Humidity \(data.humidity)% • Wind \(String(format: "%.0f", data.windSpeed)) mph")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+            // Hourly forecast row
+            if !data.hourlyForecast.isEmpty {
+                Divider()
+                    .padding(.vertical, 4)
+
+                HStack(spacing: 0) {
+                    ForEach(Array(data.hourlyForecast.enumerated()), id: \.offset) { _, entry in
+                        VStack(alignment: .center, spacing: 4) {
+                            // Hour label
+                            Text(entry.hour)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+
+                            // Weather icon
+                            Image(systemName: entry.symbolName)
+                                .font(.system(size: 20))
+                                .foregroundStyle(weatherIconColor(for: entry.iconCode))
+                                .symbolRenderingMode(.hierarchical)
+                                .frame(height: 24)
+
+                            // Precipitation %
+                            HStack(spacing: 2) {
+                                Image(systemName: "drop.fill")
+                                    .font(.system(size: 8))
+                                Text("\(Int(round(entry.pop * 100)))%")
+                            }
+                            .font(.caption2)
+                            .foregroundStyle(entry.pop > 0 ? .blue : .secondary)
+
+                            // Temperature
+                            Text("\(Int(round(entry.temp)))°F")
+                                .font(.caption)
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                }
+            }
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
