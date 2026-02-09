@@ -47,16 +47,16 @@ built from Foundation and SwiftUI primitives.
 └──────────────┬───────────────────────────────────┘
                │
 ┌──────────────▼───────────────────────────────────┐
-│  ContentView.swift (~1800 lines)                 │
+│  ContentView.swift (~2400 lines)                 │
 │  The entire UI lives here:                       │
 │  - NavigationSplitView (sidebar + detail)        │
 │  - Chat list management                          │
 │  - Message display with streaming                │
-│  - Input bar with model selector                 │
+│  - Input bar with model selector + image attach  │
 │  - Tool activity indicators                      │
 │  - The agentic tool loop (sendMessage)           │
 │  Also contains: MessageBubble, MarkdownMessage,  │
-│  CodeBlockView, WeatherCardView,                 │
+│  CodeBlockView, WeatherCardView, ImageProcessor, │
 │  SpellCheckingTextEditor, SyntaxHighlighter      │
 └──────┬──────────┬──────────┬─────────────────────┘
        │          │          │
@@ -163,8 +163,13 @@ This is handled by the `ToolResult` enum:
 - `.plain(String)` — Text-only result (datetime, search, errors)
 - `.weather(text:data:)` — Text for Claude + `WeatherData` struct for the card.
   `WeatherData` includes current conditions, icon code (for day/night SF Symbol
-  variants), daily high/low, and a `[HourlyForecast]` array (next 6 hours with
-  per-hour temp, conditions, icon code, and precipitation probability).
+  variants), daily high/low, observation timestamp (`observationTime` as Unix
+  epoch from `current.dt`), timezone offset (`timezoneOffset` in seconds from
+  UTC, from the API's top-level `timezone_offset` — enables correct local time
+  display for any queried location, not just Eastern), and a `[HourlyForecast]`
+  array (next 6 hours with per-hour temp, conditions, icon code, and precipitation
+  probability). Both timestamp fields are `Int`, remain `Codable`, and are
+  backward-compatible — old persisted cards without them render gracefully.
 
 When a tool returns structured data, the tool loop:
 1. Sends the plain text to Claude as the `tool_result` content
@@ -178,6 +183,49 @@ schema changes, no CloudKit compatibility issues.
 
 This pattern is extensible: new tools can define their own marker prefix
 (e.g., `<!--search:...-->`) and card view, following the same flow.
+
+### Image Attachments — The Same Marker Pattern
+
+Users can attach images (screenshots, photos) to messages. Images are processed
+and stored using the same embedded marker pattern as weather data:
+
+**Input methods:**
+- **Paste (⌘V)** — Primary path for macOS screenshots. `PasteInterceptingTextView`
+  (NSTextView subclass) intercepts paste, checks for image data on the pasteboard.
+- **Drag and drop** — Drop image files onto the input area. Same NSTextView subclass
+  overrides `performDragOperation` to intercept file drops before they become text.
+- **File picker** — Attachment button (photo.badge.plus) opens `.fileImporter`.
+
+**Processing pipeline (`ImageProcessor` enum):**
+1. Accept raw image data (PNG, JPEG, TIFF, etc.)
+2. Downscale to 1024px max on long edge (retina screenshots → reasonable size)
+3. Encode as JPEG at 0.7 quality
+4. Return base64 string + media type
+
+**Pending images UI:**
+- `@State private var pendingImages: [PendingImage]` holds images awaiting send
+- Thumbnail strip (60pt previews) appears above input bar when images are pending
+- Each thumbnail has an X button to remove before sending
+
+**Persistence (marker pattern):**
+```
+<!--image:{"id":"uuid","media_type":"image/jpeg","data":"base64..."}-->
+user's text message here
+```
+Multiple images = multiple markers, one per line. `MessageBubble` parses these
+markers, extracts images, renders via `MessageImageView` (click to expand),
+then displays the cleaned text below.
+
+**API format:**
+When sending to Claude, image markers are converted to content blocks:
+```json
+{"role": "user", "content": [
+  {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": "..."}},
+  {"type": "text", "text": "What's in this screenshot?"}
+]}
+```
+The `buildAPIMessage()` helper handles this conversion for both fresh sends
+and when rebuilding conversation history from persisted messages.
 
 ### SwiftData + CloudKit Sync
 
@@ -218,11 +266,21 @@ The entire interface is a single `NavigationSplitView`:
   Chat below.
 
 Message rendering handles markdown (via `AttributedString(markdown:)`) and
-fenced code blocks with **syntax highlighting** (Python, Swift, JavaScript, JSON,
-Bash, and generic fallback). Code blocks have a dark theme background, line numbers,
-language label header, and a copy-to-clipboard button. Inline code in prose gets a
-visible background tint. Rich tool results (like weather) render as inline cards
-above Claude's prose response.
+fenced code blocks with **syntax highlighting** via the `SyntaxHighlighter` enum —
+a regex-based tokenizer that maps source code into colored `AttributedString` spans.
+Supported languages: Python, Swift, JavaScript/TypeScript, JSON, Bash, plus a
+generic fallback that highlights strings, comments, and numbers for unrecognized
+languages. Language aliases are normalized (e.g., `py` → Python, `js` → JavaScript).
+Color palette is Dracula-inspired: pink keywords, green strings, gray comments,
+orange numbers, cyan types, blue function calls, yellow decorators/attributes.
+
+`CodeBlockView` renders with a dark background (always dark, even in light system
+appearance), line numbers in a fixed left gutter, a header bar with language label
+and copy-to-clipboard button (clipboard icon → checkmark "Copied" feedback), and
+horizontal scrolling for long lines. Inline code in prose gets monospaced font with
+a visible gray background tint.
+
+Rich tool results (like weather) render as inline cards above Claude's prose response.
 
 The UI follows a Gemini-inspired clean aesthetic:
 - Assistant messages sit directly on the canvas (no bubble background)
@@ -276,6 +334,11 @@ the app's focus is on being the best Claude client it can be, not a generic
 LLM frontend.
 
 Recent additions:
+- **Image attachments** — Users can attach screenshots and images to messages via
+  paste (⌘V), drag-and-drop, or file picker. Images are downscaled to 1024px max,
+  encoded as JPEG base64, and stored using the embedded marker pattern. Renders as
+  clickable thumbnails in user messages (tap to expand). Full vision support for
+  Claude to analyze images. See "Image Attachments" section above for details.
 - **Syntax-highlighted code blocks** — `SyntaxHighlighter` enum provides regex-based
   tokenization for Python, Swift, JavaScript/TypeScript, JSON, Bash, with a generic
   fallback. Dracula-inspired color palette (pink keywords, green strings, gray
@@ -286,17 +349,22 @@ Recent additions:
   binding; input bar grows from 36pt to 200pt max as user types, with smooth animation.
   On iOS, uses hidden `Text` measurement via `GeometryReader`. Resets to compact size
   after sending.
-- **Weather card gradients** — Condition-aware background gradients (clear blue, cloudy
-  gray, rainy slate, etc.) with day/night variants. Colored weather icons (yellow sun,
-  cyan rain). Observation timestamp display ("as of 3:13 PM").
-- **Rich weather cards** — Weather tool results display as visual cards with
-  SF Symbol icons, temperature, conditions, and details. The embedded marker
-  pattern enables this without SwiftData schema changes.
+- **Weather card visual upgrade** — `WeatherCardView` now uses condition-aware
+  `LinearGradient` backgrounds keyed to `iconCode` (two-char prefix for condition,
+  `d`/`n` suffix for day/night). Palettes range from warm sky-blue/golden (clear
+  day) through steel grays (overcast) to deep navy (clear night) and dark purple
+  (thunderstorm). All card text renders white/light for contrast. Observation
+  timestamp formatted as "as of 3:13 PM" using the queried location's own timezone
+  via `timezoneOffset` — a Boise query shows Mountain time, not Eastern.
+  `WeatherData` gained two `Int` fields (`observationTime`, `timezoneOffset`);
+  old persisted cards without them fall back gracefully (no timestamp shown,
+  sensible default gradient).
 
 Areas open for development:
 - **Rich search results** — Apply the same marker pattern to web search for
   card-based result display.
 - **Apple platform integration** — Shortcuts, widgets, Siri.
+- **iOS image attachment** — Paste and file picker work; drag-and-drop needs iOS-specific handling.
 
 ---
 

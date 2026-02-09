@@ -7,6 +7,123 @@
 
 import SwiftUI
 import SwiftData
+import UniformTypeIdentifiers
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
+
+// MARK: - Image Processing
+
+/// Utility for processing images before sending to Claude API
+/// Downscales to 1024px max edge and encodes as JPEG base64
+enum ImageProcessor {
+    
+    /// Result of processing an image
+    struct ProcessedImage {
+        let id: UUID
+        let base64Data: String
+        let mediaType: String  // Always "image/jpeg"
+    }
+    
+    /// Process platform image data into base64 JPEG
+    /// - Parameter imageData: Raw image data (PNG, JPEG, etc.)
+    /// - Returns: ProcessedImage with base64 data, or nil if processing fails
+    static func process(_ imageData: Data) -> ProcessedImage? {
+        #if os(macOS)
+        guard let nsImage = NSImage(data: imageData) else { return nil }
+        return processNSImage(nsImage)
+        #else
+        guard let uiImage = UIImage(data: imageData) else { return nil }
+        return processUIImage(uiImage)
+        #endif
+    }
+    
+    #if os(macOS)
+    /// Process NSImage (macOS)
+    static func processNSImage(_ image: NSImage) -> ProcessedImage? {
+        // Get the actual pixel dimensions from the image rep
+        guard let bitmapRep = image.representations.first else { return nil }
+        let pixelWidth = CGFloat(bitmapRep.pixelsWide)
+        let pixelHeight = CGFloat(bitmapRep.pixelsHigh)
+        
+        // Calculate scale to fit within 1024px on the long edge
+        let maxDimension: CGFloat = 1024
+        let scale = min(maxDimension / max(pixelWidth, pixelHeight), 1.0)
+        let newWidth = pixelWidth * scale
+        let newHeight = pixelHeight * scale
+        
+        // Create scaled image
+        let newSize = NSSize(width: newWidth, height: newHeight)
+        let scaledImage = NSImage(size: newSize)
+        scaledImage.lockFocus()
+        NSGraphicsContext.current?.imageInterpolation = .high
+        image.draw(in: NSRect(origin: .zero, size: newSize),
+                   from: NSRect(origin: .zero, size: NSSize(width: pixelWidth, height: pixelHeight)),
+                   operation: .copy,
+                   fraction: 1.0)
+        scaledImage.unlockFocus()
+        
+        // Convert to JPEG data
+        guard let tiffData = scaledImage.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiffData),
+              let jpegData = bitmap.representation(using: .jpeg, properties: [.compressionFactor: 0.7]) else {
+            return nil
+        }
+        
+        let base64 = jpegData.base64EncodedString()
+        return ProcessedImage(id: UUID(), base64Data: base64, mediaType: "image/jpeg")
+    }
+    #endif
+    
+    #if os(iOS)
+    /// Process UIImage (iOS)
+    static func processUIImage(_ image: UIImage) -> ProcessedImage? {
+        let pixelWidth = image.size.width * image.scale
+        let pixelHeight = image.size.height * image.scale
+        
+        // Calculate scale to fit within 1024px on the long edge
+        let maxDimension: CGFloat = 1024
+        let scale = min(maxDimension / max(pixelWidth, pixelHeight), 1.0)
+        let newWidth = pixelWidth * scale
+        let newHeight = pixelHeight * scale
+        
+        // Create scaled image
+        let newSize = CGSize(width: newWidth, height: newHeight)
+        let renderer = UIGraphicsImageRenderer(size: newSize)
+        let scaledImage = renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: newSize))
+        }
+        
+        // Convert to JPEG data
+        guard let jpegData = scaledImage.jpegData(compressionQuality: 0.7) else {
+            return nil
+        }
+        
+        let base64 = jpegData.base64EncodedString()
+        return ProcessedImage(id: UUID(), base64Data: base64, mediaType: "image/jpeg")
+    }
+    #endif
+}
+
+/// Pending image attachment waiting to be sent
+struct PendingImage: Identifiable {
+    let id: UUID
+    let base64Data: String
+    let mediaType: String
+    let thumbnailData: Data  // For preview display
+    
+    #if os(macOS)
+    var thumbnailImage: NSImage? {
+        NSImage(data: thumbnailData)
+    }
+    #else
+    var thumbnailImage: UIImage? {
+        UIImage(data: thumbnailData)
+    }
+    #endif
+}
 
 // MARK: - Platform Colors
 
@@ -46,6 +163,7 @@ struct SpellCheckingTextEditor: NSViewRepresentable {
     @Binding var text: String
     @Binding var contentHeight: CGFloat
     var onReturn: (() -> Void)?
+    var onImagePaste: ((Data) -> Void)?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -59,8 +177,11 @@ struct SpellCheckingTextEditor: NSViewRepresentable {
         scrollView.borderType = .noBorder
         scrollView.drawsBackground = false
 
-        let textView = NSTextView()
+        let textView = PasteInterceptingTextView()
         textView.delegate = context.coordinator
+        textView.onImagePaste = { imageData in
+            context.coordinator.parent.onImagePaste?(imageData)
+        }
         textView.isRichText = false
         textView.font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
         textView.textColor = NSColor.labelColor
@@ -161,6 +282,96 @@ struct SpellCheckingTextEditor: NSViewRepresentable {
         }
     }
 }
+
+/// NSTextView subclass that intercepts paste and drag-drop to handle images
+class PasteInterceptingTextView: NSTextView {
+    var onImagePaste: ((Data) -> Void)?
+    
+    override func paste(_ sender: Any?) {
+        let pasteboard = NSPasteboard.general
+        
+        // Check for image data first
+        if let imageData = pasteboard.data(forType: .png) {
+            onImagePaste?(imageData)
+            return
+        }
+        if let imageData = pasteboard.data(forType: .tiff) {
+            onImagePaste?(imageData)
+            return
+        }
+        // Check for file URLs that might be images
+        if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] {
+            for url in urls {
+                if let uti = try? url.resourceValues(forKeys: [.typeIdentifierKey]).typeIdentifier,
+                   UTType(uti)?.conforms(to: .image) == true,
+                   let imageData = try? Data(contentsOf: url) {
+                    onImagePaste?(imageData)
+                    return
+                }
+            }
+        }
+        
+        // Fall through to normal paste for text
+        super.paste(sender)
+    }
+    
+    // MARK: - Drag and Drop Interception
+    
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        let pasteboard = sender.draggingPasteboard
+        
+        // Check if this is an image drop we want to handle
+        if pasteboard.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) {
+            if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] {
+                for url in urls {
+                    if let uti = try? url.resourceValues(forKeys: [.typeIdentifierKey]).typeIdentifier,
+                       let type = UTType(uti),
+                       type.conforms(to: .image) {
+                        return .copy
+                    }
+                }
+            }
+        }
+        
+        // Check for direct image data
+        if pasteboard.data(forType: .png) != nil || pasteboard.data(forType: .tiff) != nil {
+            return .copy
+        }
+        
+        // Fall back to default behavior for text drops
+        return super.draggingEntered(sender)
+    }
+    
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        let pasteboard = sender.draggingPasteboard
+        
+        // Try to handle as image file URL first
+        if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] {
+            for url in urls {
+                if let uti = try? url.resourceValues(forKeys: [.typeIdentifierKey]).typeIdentifier,
+                   let type = UTType(uti),
+                   type.conforms(to: .image),
+                   let imageData = try? Data(contentsOf: url) {
+                    onImagePaste?(imageData)
+                    return true
+                }
+            }
+        }
+        
+        // Try direct image data
+        if let imageData = pasteboard.data(forType: .png) {
+            onImagePaste?(imageData)
+            return true
+        }
+        if let imageData = pasteboard.data(forType: .tiff) {
+            onImagePaste?(imageData)
+            return true
+        }
+        
+        // Fall back to default behavior for text
+        return super.performDragOperation(sender)
+    }
+}
 #endif
 
 struct ContentView: View {
@@ -184,6 +395,8 @@ struct ContentView: View {
     @State private var renamingChatId: String?
     @State private var renameChatText: String = ""
     @State private var showUnderConstruction: Bool = false
+    @State private var pendingImages: [PendingImage] = []
+    @State private var showingImagePicker: Bool = false
 
     @Environment(\.modelContext) private var modelContext
     private let claudeService = ClaudeService()
@@ -587,61 +800,99 @@ struct ContentView: View {
             
             Divider()
             
-            HStack(alignment: .bottom, spacing: 12) {
-                ZStack(alignment: .topLeading) {
-                    #if os(macOS)
-                    // macOS: Use NSTextView wrapper for proper spell checking
-                    SpellCheckingTextEditor(text: $messageText, contentHeight: $inputHeight) {
-                        sendMessage()
-                    }
-                    .frame(height: min(max(inputHeight, 36), 200))
-                    #else
-                    // iOS: Use hidden Text to measure content height, then size TextEditor
-                    Text(messageText.isEmpty ? " " : messageText)
-                        .font(.body)
-                        .padding(6)
-                        .opacity(0)
-                        .background(
-                            GeometryReader { geometry in
-                                Color.clear.preference(
-                                    key: InputHeightPreferenceKey.self,
-                                    value: geometry.size.height
+            VStack(spacing: 8) {
+                // Pending images preview strip
+                if !pendingImages.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(pendingImages) { pending in
+                                PendingImageThumbnail(
+                                    pending: pending,
+                                    onRemove: { removePendingImage(id: pending.id) }
                                 )
                             }
-                        )
-                        .onPreferenceChange(InputHeightPreferenceKey.self) { height in
-                            inputHeight = max(36, height)
                         }
-                    
-                    TextEditor(text: $messageText)
-                        .font(.body)
-                        .scrollContentBackground(.hidden)
-                        .padding(6)
-                        .frame(height: min(max(inputHeight, 36), 200))
-                    #endif
-
-                    // Placeholder text overlay
-                    if messageText.isEmpty {
-                        Text("Type your message...")
-                            .foregroundStyle(.tertiary)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 14)
-                            .allowsHitTesting(false)
+                        .padding(.horizontal, 12)
                     }
+                    .frame(height: 70)
                 }
-                .background(PlatformColor.textBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(Color.gray.opacity(0.3), lineWidth: 1)
-                )
-                .animation(.easeInOut(duration: 0.15), value: inputHeight)
+                
+                HStack(alignment: .bottom, spacing: 12) {
+                    // Attachment button
+                    Button {
+                        showingImagePicker = true
+                    } label: {
+                        Image(systemName: "photo.badge.plus")
+                            .font(.system(size: 18))
+                            .foregroundStyle(.blue)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Attach image")
+                    
+                    ZStack(alignment: .topLeading) {
+                        #if os(macOS)
+                        // macOS: Use NSTextView wrapper for proper spell checking
+                        SpellCheckingTextEditor(
+                            text: $messageText,
+                            contentHeight: $inputHeight,
+                            onReturn: { sendMessage() },
+                            onImagePaste: { imageData in
+                                addImageFromData(imageData)
+                            }
+                        )
+                        .frame(height: min(max(inputHeight, 36), 200))
+                        #else
+                        // iOS: Use hidden Text to measure content height, then size TextEditor
+                        Text(messageText.isEmpty ? " " : messageText)
+                            .font(.body)
+                            .padding(6)
+                            .opacity(0)
+                            .background(
+                                GeometryReader { geometry in
+                                    Color.clear.preference(
+                                        key: InputHeightPreferenceKey.self,
+                                        value: geometry.size.height
+                                    )
+                                }
+                            )
+                            .onPreferenceChange(InputHeightPreferenceKey.self) { height in
+                                inputHeight = max(36, height)
+                            }
+                        
+                        TextEditor(text: $messageText)
+                            .font(.body)
+                            .scrollContentBackground(.hidden)
+                            .padding(6)
+                            .frame(height: min(max(inputHeight, 36), 200))
+                        #endif
 
-                Button("Send") {
-                    sendMessage()
+                        // Placeholder text overlay
+                        if messageText.isEmpty && pendingImages.isEmpty {
+                            Text("Type your message...")
+                                .foregroundStyle(.tertiary)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 14)
+                                .allowsHitTesting(false)
+                        }
+                    }
+                    .background(PlatformColor.textBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                    )
+                    .animation(.easeInOut(duration: 0.15), value: inputHeight)
+                    .onDrop(of: [.image, .fileURL], isTargeted: nil) { providers in
+                        handleImageDrop(providers: providers)
+                        return true
+                    }
+
+                    Button("Send") {
+                        sendMessage()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled((messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && pendingImages.isEmpty) || isLoading)
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLoading)
             }
             .padding(12)
             .background(Color.gray.opacity(0.1))
@@ -652,6 +903,13 @@ struct ContentView: View {
             )
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
+            .fileImporter(
+                isPresented: $showingImagePicker,
+                allowedContentTypes: [.image],
+                allowsMultipleSelection: true
+            ) { result in
+                handleFileImport(result: result)
+            }
         }
     }
     
@@ -795,12 +1053,34 @@ struct ContentView: View {
     // MARK: - Message Sending
     
     private func sendMessage() {
-        guard !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        let trimmedText = messageText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedText.isEmpty || !pendingImages.isEmpty else { return }
         guard let chatId = selectedChat else { return }
 
+        // Build image markers for persistence
+        var imageMarkers: [String] = []
+        for pending in pendingImages {
+            let markerJson: [String: String] = [
+                "id": pending.id.uuidString,
+                "media_type": pending.mediaType,
+                "data": pending.base64Data
+            ]
+            if let jsonData = try? JSONSerialization.data(withJSONObject: markerJson),
+               let jsonString = String(data: jsonData, encoding: .utf8) {
+                imageMarkers.append("<!--image:\(jsonString)-->")
+            }
+        }
+        
+        // Build persisted content with markers prepended
+        let markerPrefix = imageMarkers.isEmpty ? "" : imageMarkers.joined(separator: "\n") + "\n"
+        let persistedContent = markerPrefix + trimmedText
+        
+        // Capture pending images for API call before clearing
+        let imagesToSend = pendingImages
+        
         let userMessage = Message(
             role: .user,
-            content: messageText,
+            content: persistedContent,
             timestamp: Date()
         )
 
@@ -813,6 +1093,8 @@ struct ContentView: View {
         }
 
         messageText = ""
+        pendingImages = []
+        inputHeight = 36  // Reset input height
         errorMessage = nil
 
         let assistantMessageId = UUID()
@@ -823,10 +1105,40 @@ struct ContentView: View {
 
         Task {
             do {
+                // Build API messages, converting image markers to content blocks
                 var apiMessages: [[String: Any]] = messages.map { msg in
-                    [
-                        "role": msg.role == .user ? "user" : "assistant",
-                        "content": msg.content
+                    buildAPIMessage(from: msg)
+                }
+                
+                // For the current message, ensure images are included properly
+                // The last user message should have the images we just sent
+                if !imagesToSend.isEmpty, let lastIndex = apiMessages.indices.last {
+                    // Rebuild the last message with explicit image blocks
+                    var contentBlocks: [[String: Any]] = []
+                    
+                    // Add image blocks first
+                    for pending in imagesToSend {
+                        contentBlocks.append([
+                            "type": "image",
+                            "source": [
+                                "type": "base64",
+                                "media_type": pending.mediaType,
+                                "data": pending.base64Data
+                            ]
+                        ])
+                    }
+                    
+                    // Add text block if there's text
+                    if !trimmedText.isEmpty {
+                        contentBlocks.append([
+                            "type": "text",
+                            "text": trimmedText
+                        ])
+                    }
+                    
+                    apiMessages[lastIndex] = [
+                        "role": "user",
+                        "content": contentBlocks
                     ]
                 }
 
@@ -959,12 +1271,273 @@ struct ContentView: View {
             }
         }
     }
+    
+    // MARK: - Image Attachment Helpers
+    
+    /// Add image from raw data (from paste or file)
+    private func addImageFromData(_ data: Data) {
+        guard let processed = ImageProcessor.process(data) else {
+            print("Failed to process image")
+            return
+        }
+        
+        // Create thumbnail for preview (use original data if small enough, otherwise use processed)
+        let thumbnailData = data.count < 100_000 ? data : Data(base64Encoded: processed.base64Data) ?? data
+        
+        let pending = PendingImage(
+            id: processed.id,
+            base64Data: processed.base64Data,
+            mediaType: processed.mediaType,
+            thumbnailData: thumbnailData
+        )
+        
+        pendingImages.append(pending)
+    }
+    
+    /// Remove a pending image by ID
+    private func removePendingImage(id: UUID) {
+        pendingImages.removeAll { $0.id == id }
+    }
+    
+    /// Handle drag and drop of images
+    private func handleImageDrop(providers: [NSItemProvider]) {
+        for provider in providers {
+            // Try file URL first (most common for Finder drops)
+            if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+                _ = provider.loadObject(ofClass: URL.self) { url, error in
+                    guard let url = url else {
+                        print("Drop: Failed to load URL - \(error?.localizedDescription ?? "unknown")")
+                        return
+                    }
+                    
+                    // Check if it's an image file
+                    guard let typeIdentifier = try? url.resourceValues(forKeys: [.typeIdentifierKey]).typeIdentifier,
+                          let uti = UTType(typeIdentifier),
+                          uti.conforms(to: .image) else {
+                        print("Drop: Not an image file")
+                        return
+                    }
+                    
+                    // Read the image data
+                    guard let imageData = try? Data(contentsOf: url) else {
+                        print("Drop: Failed to read image data from \(url)")
+                        return
+                    }
+                    
+                    DispatchQueue.main.async {
+                        self.addImageFromData(imageData)
+                    }
+                }
+            }
+            // Fallback: try to load as raw image data
+            else if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
+                provider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, error in
+                    if let data = data {
+                        DispatchQueue.main.async {
+                            self.addImageFromData(data)
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    /// Handle file importer result
+    private func handleFileImport(result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            for url in urls {
+                guard url.startAccessingSecurityScopedResource() else { continue }
+                defer { url.stopAccessingSecurityScopedResource() }
+                
+                if let imageData = try? Data(contentsOf: url) {
+                    addImageFromData(imageData)
+                }
+            }
+        case .failure(let error):
+            print("File import error: \(error)")
+        }
+    }
+    
+    /// Build API message format from a stored Message
+    /// Converts image markers to content blocks for the API
+    private func buildAPIMessage(from message: Message) -> [String: Any] {
+        let role = message.role == .user ? "user" : "assistant"
+        
+        // Check for image markers in user messages
+        if message.role == .user {
+            let (images, cleanText) = parseImageMarkers(from: message.content)
+            
+            if !images.isEmpty {
+                // Build content array with image blocks
+                var contentBlocks: [[String: Any]] = []
+                
+                for imageData in images {
+                    contentBlocks.append([
+                        "type": "image",
+                        "source": [
+                            "type": "base64",
+                            "media_type": imageData.mediaType,
+                            "data": imageData.base64Data
+                        ]
+                    ])
+                }
+                
+                // Add text block if there's text
+                let trimmedText = cleanText.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmedText.isEmpty {
+                    contentBlocks.append([
+                        "type": "text",
+                        "text": trimmedText
+                    ])
+                }
+                
+                return ["role": role, "content": contentBlocks]
+            }
+        }
+        
+        // For assistant messages or user messages without images, use simple string content
+        // Strip any markers from assistant messages (weather, etc.) for the API
+        let cleanContent = stripAllMarkers(from: message.content)
+        return ["role": role, "content": cleanContent]
+    }
+    
+    /// Parse image markers from message content
+    /// Returns array of image data and the cleaned text content
+    private func parseImageMarkers(from content: String) -> (images: [(id: String, mediaType: String, base64Data: String)], cleanText: String) {
+        var images: [(id: String, mediaType: String, base64Data: String)] = []
+        var cleanContent = content
+        
+        let pattern = "<!--image:(\\{.+?\\})-->"
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+            return (images, content)
+        }
+        
+        let range = NSRange(content.startIndex..., in: content)
+        let matches = regex.matches(in: content, options: [], range: range)
+        
+        for match in matches {
+            if let jsonRange = Range(match.range(at: 1), in: content) {
+                let jsonString = String(content[jsonRange])
+                if let jsonData = jsonString.data(using: .utf8),
+                   let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: String],
+                   let id = json["id"],
+                   let mediaType = json["media_type"],
+                   let base64Data = json["data"] {
+                    images.append((id: id, mediaType: mediaType, base64Data: base64Data))
+                }
+            }
+        }
+        
+        // Remove markers from content
+        cleanContent = regex.stringByReplacingMatches(in: content, options: [], range: range, withTemplate: "")
+        // Clean up any leading newlines from marker removal
+        cleanContent = cleanContent.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        return (images, cleanContent)
+    }
+    
+    /// Strip all embedded markers (weather, image, etc.) from content
+    private func stripAllMarkers(from content: String) -> String {
+        var result = content
+        
+        // Strip weather markers
+        if let regex = try? NSRegularExpression(pattern: "<!--weather:.+?-->\\n?", options: []) {
+            let range = NSRange(result.startIndex..., in: result)
+            result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: "")
+        }
+        
+        // Strip image markers
+        if let regex = try? NSRegularExpression(pattern: "<!--image:\\{.+?\\}-->\\n?", options: []) {
+            let range = NSRange(result.startIndex..., in: result)
+            result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: "")
+        }
+        
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+// MARK: - Pending Image Thumbnail View
+
+struct PendingImageThumbnail: View {
+    let pending: PendingImage
+    let onRemove: () -> Void
+    
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            #if os(macOS)
+            if let image = pending.thumbnailImage {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 60, height: 60)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+            #else
+            if let image = pending.thumbnailImage {
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 60, height: 60)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+            #endif
+            
+            // Remove button
+            Button(action: onRemove) {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 18))
+                    .foregroundStyle(.white)
+                    .background(Circle().fill(Color.black.opacity(0.6)))
+            }
+            .buttonStyle(.plain)
+            .offset(x: 6, y: -6)
+        }
+    }
 }
 
 // MARK: - Message Bubble View
 
 struct MessageBubble: View {
     let message: Message
+    @State private var expandedImageId: String?
+    
+    /// Parse image data from markers in content
+    private var parsedImages: [(id: String, mediaType: String, base64Data: String)] {
+        var images: [(id: String, mediaType: String, base64Data: String)] = []
+        let pattern = "<!--image:(\\{.+?\\})-->"
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+            return images
+        }
+        
+        let range = NSRange(message.content.startIndex..., in: message.content)
+        let matches = regex.matches(in: message.content, options: [], range: range)
+        
+        for match in matches {
+            if let jsonRange = Range(match.range(at: 1), in: message.content) {
+                let jsonString = String(message.content[jsonRange])
+                if let jsonData = jsonString.data(using: .utf8),
+                   let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: String],
+                   let id = json["id"],
+                   let mediaType = json["media_type"],
+                   let base64Data = json["data"] {
+                    images.append((id: id, mediaType: mediaType, base64Data: base64Data))
+                }
+            }
+        }
+        return images
+    }
+    
+    /// Content with image markers stripped
+    private var cleanedContent: String {
+        let pattern = "<!--image:\\{.+?\\}-->\\n?"
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+            return message.content
+        }
+        let range = NSRange(message.content.startIndex..., in: message.content)
+        return regex.stringByReplacingMatches(in: message.content, options: [], range: range, withTemplate: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
     
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
@@ -980,13 +1553,12 @@ struct MessageBubble: View {
             if message.role == .assistant {
                 MarkdownMessageView(content: message.content)
             } else {
-                Text(message.content)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(Color.accentColor.opacity(0.15))
-                    .foregroundColor(.primary)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .textSelection(.enabled)
+                // User message with potential images
+                UserMessageContent(
+                    images: parsedImages,
+                    text: cleanedContent,
+                    expandedImageId: $expandedImageId
+                )
             }
             
             if message.role == .user {
@@ -997,6 +1569,100 @@ struct MessageBubble: View {
             if message.role == .assistant {
                 Spacer()
             }
+        }
+    }
+}
+
+// MARK: - User Message Content View
+
+struct UserMessageContent: View {
+    let images: [(id: String, mediaType: String, base64Data: String)]
+    let text: String
+    @Binding var expandedImageId: String?
+    
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 8) {
+            // Render images if present
+            if !images.isEmpty {
+                HStack(spacing: 8) {
+                    ForEach(images, id: \.id) { imageData in
+                        MessageImageView(
+                            base64Data: imageData.base64Data,
+                            isExpanded: expandedImageId == imageData.id,
+                            onTap: {
+                                if expandedImageId == imageData.id {
+                                    expandedImageId = nil
+                                } else {
+                                    expandedImageId = imageData.id
+                                }
+                            }
+                        )
+                    }
+                }
+            }
+            
+            // Render text if present
+            if !text.isEmpty {
+                Text(text)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(Color.accentColor.opacity(0.15))
+                    .foregroundColor(.primary)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .textSelection(.enabled)
+            }
+        }
+    }
+}
+
+// MARK: - Message Image View
+
+struct MessageImageView: View {
+    let base64Data: String
+    let isExpanded: Bool
+    let onTap: () -> Void
+    
+    #if os(macOS)
+    private var image: NSImage? {
+        guard let data = Data(base64Encoded: base64Data) else { return nil }
+        return NSImage(data: data)
+    }
+    #else
+    private var image: UIImage? {
+        guard let data = Data(base64Encoded: base64Data) else { return nil }
+        return UIImage(data: data)
+    }
+    #endif
+    
+    var body: some View {
+        Group {
+            #if os(macOS)
+            if let nsImage = image {
+                Image(nsImage: nsImage)
+                    .resizable()
+                    .aspectRatio(contentMode: isExpanded ? .fit : .fill)
+                    .frame(
+                        maxWidth: isExpanded ? 600 : 200,
+                        maxHeight: isExpanded ? 500 : 150
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .onTapGesture(perform: onTap)
+                    .animation(.easeInOut(duration: 0.2), value: isExpanded)
+            }
+            #else
+            if let uiImage = image {
+                Image(uiImage: uiImage)
+                    .resizable()
+                    .aspectRatio(contentMode: isExpanded ? .fit : .fill)
+                    .frame(
+                        maxWidth: isExpanded ? 600 : 200,
+                        maxHeight: isExpanded ? 500 : 150
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .onTapGesture(perform: onTap)
+                    .animation(.easeInOut(duration: 0.2), value: isExpanded)
+            }
+            #endif
         }
     }
 }
