@@ -397,6 +397,7 @@ struct ContentView: View {
     @State private var showUnderConstruction: Bool = false
     @State private var pendingImages: [PendingImage] = []
     @State private var showingImagePicker: Bool = false
+    @State private var contextThreshold: Int = 0  // Context management: grade threshold for filtering
 
     @Environment(\.modelContext) private var modelContext
     private let claudeService = ClaudeService()
@@ -669,9 +670,38 @@ struct ContentView: View {
                                 .padding()
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                         } else {
-                            ForEach(messages) { message in
-                                MessageBubble(message: message)
-                                    .id(message.id)
+                            ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
+                                // For turn-based dimming: all messages in a turn share the user message's grade
+                                // Use turnId when available, fall back to position-based lookup for legacy messages
+                                let turnGrade: Int = {
+                                    if message.role == .user {
+                                        return message.textGrade
+                                    } else {
+                                        // Try to find user message with same turnId first
+                                        if !message.turnId.isEmpty {
+                                            if let userMsg = messages.first(where: { $0.turnId == message.turnId && $0.role == .user }) {
+                                                return userMsg.textGrade
+                                            }
+                                        }
+                                        // Fall back to position-based lookup for legacy messages without turnId
+                                        for i in stride(from: index - 1, through: 0, by: -1) {
+                                            if messages[i].role == .user {
+                                                return messages[i].textGrade
+                                            }
+                                        }
+                                        return message.textGrade  // Fallback
+                                    }
+                                }()
+                                
+                                MessageBubble(
+                                    message: message,
+                                    turnGrade: turnGrade,
+                                    threshold: contextThreshold,
+                                    onGradeChange: { newGrade in
+                                        updateMessageGrade(messageId: message.id, grade: newGrade)
+                                    }
+                                )
+                                .id(message.id)
                             }
                             
                             if let streamingId = streamingMessageId, !streamingContent.isEmpty {
@@ -697,6 +727,7 @@ struct ContentView: View {
                                     Spacer()
                                 }
                                 .padding(.leading, 36)
+                                .id("tool-activity-indicator")
                             }
                             
                             if isLoading && streamingContent.isEmpty && toolActivityMessage == nil {
@@ -709,7 +740,13 @@ struct ContentView: View {
                                         .padding(.vertical, 8)
                                     Spacer()
                                 }
+                                .id("thinking-indicator")
                             }
+                            
+                            // Bottom spacer for breathing room above input bar
+                            Color.clear
+                                .frame(height: 24)
+                                .id("bottom-spacer")
                         }
                     }
                     .padding()
@@ -718,9 +755,12 @@ struct ContentView: View {
                 }
                 .scrollDismissesKeyboard(.interactively)
                 .onChange(of: messages.count) { _, _ in
-                    if let lastMessage = messages.last {
-                        withAnimation {
-                            proxy.scrollTo(lastMessage.id, anchor: .bottom)
+                    if messages.last != nil {
+                        // Small delay to allow SwiftUI to lay out the new message
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            withAnimation {
+                                proxy.scrollTo("bottom-spacer", anchor: .bottom)
+                            }
                         }
                     }
                 }
@@ -728,6 +768,27 @@ struct ContentView: View {
                     if let streamingId = streamingMessageId {
                         withAnimation {
                             proxy.scrollTo(streamingId, anchor: .bottom)
+                        }
+                    }
+                }
+                .onChange(of: isLoading) { _, newValue in
+                    if newValue {
+                        // Scroll to thinking indicator when loading starts
+                        // Small delay to allow SwiftUI to render the indicator first
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                            withAnimation {
+                                proxy.scrollTo("thinking-indicator", anchor: .bottom)
+                            }
+                        }
+                    }
+                }
+                .onChange(of: toolActivityMessage) { _, newValue in
+                    if newValue != nil {
+                        // Scroll to tool activity indicator when it appears
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            withAnimation {
+                                proxy.scrollTo("tool-activity-indicator", anchor: .bottom)
+                            }
                         }
                     }
                 }
@@ -776,7 +837,41 @@ struct ContentView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     
+                    Text("•")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    
+                    // Context threshold - tappable cycling number
+                    Button {
+                        // Cycle 0→1→2→3→4→5→0
+                        let newValue = (contextThreshold + 1) % 6
+                        contextThreshold = newValue
+                        updateContextThreshold(newValue)
+                    } label: {
+                        Text("Context: \(contextThreshold)")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(contextThreshold > 0 ? .blue : .secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Tap to cycle threshold (0-5). Turns with grade < \(contextThreshold) are excluded from context.")
+                    
                     Spacer()
+                    
+                    // Bulk grade actions
+                    Menu {
+                        Button("Grade All 5 (Full Context)") {
+                            confirmBulkGrade(grade: 5)
+                        }
+                        Button("Grade All 0 (Clear Context)") {
+                            confirmBulkGrade(grade: 0)
+                        }
+                    } label: {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .help("Bulk grade actions")
                     
                     Button("Clear Chat") {
                         clearCurrentChat()
@@ -867,11 +962,14 @@ struct ContentView: View {
                         #endif
 
                         // Placeholder text overlay
+                        // Padding must match NSTextView's textContainerInset (width: 4, height: 8)
+                        // plus the text container's lineFragmentPadding (default 5pt on each side)
                         if messageText.isEmpty && pendingImages.isEmpty {
                             Text("Type your message...")
+                                .font(.body)
                                 .foregroundStyle(.tertiary)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 14)
+                                .padding(.leading, 9)  // 4 (inset) + 5 (lineFragmentPadding)
+                                .padding(.top, 8)      // matches textContainerInset.height
                                 .allowsHitTesting(false)
                         }
                     }
@@ -921,6 +1019,13 @@ struct ContentView: View {
             try dataService.deduplicateSessions()
         } catch {
             print("Deduplication check: \(error)")
+        }
+        
+        // Backfill turnIds for messages created before turn tracking
+        do {
+            try dataService.backfillTurnIds()
+        } catch {
+            print("TurnId backfill: \(error)")
         }
         
         ensureScratchPadExists()
@@ -1019,10 +1124,103 @@ struct ContentView: View {
                 totalOutputTokens = 0
             }
             
+            // Load context threshold for this chat
+            contextThreshold = dataService.getContextThreshold(forChat: chatId)
+            
             errorMessage = nil
         } catch {
             errorMessage = "Failed to load chat: \(error.localizedDescription)"
             print("Load Error: \(error)")
+        }
+    }
+    
+    // MARK: - Context Management
+    
+    private func updateContextThreshold(_ newValue: Int) {
+        guard let chatId = selectedChat else { return }
+        
+        do {
+            try dataService.setContextThreshold(forChat: chatId, threshold: newValue)
+        } catch {
+            errorMessage = "Failed to update threshold: \(error.localizedDescription)"
+        }
+    }
+    
+    private func confirmBulkGrade(grade: Int) {
+        guard let chatId = selectedChat else { return }
+        
+        do {
+            try dataService.setAllGrades(forChat: chatId, textGrade: grade, imageGrade: grade)
+            // Reload to refresh UI
+            loadChat(chatId: chatId)
+        } catch {
+            errorMessage = "Failed to update grades: \(error.localizedDescription)"
+        }
+    }
+    
+    private func updateMessageGrade(messageId: UUID, grade: Int) {
+        do {
+            try dataService.setTextGrade(forMessageId: messageId.uuidString, grade: grade)
+            // Update local state to reflect change immediately
+            if let index = messages.firstIndex(where: { $0.id == messageId }) {
+                messages[index].textGrade = grade
+                messages[index].imageGrade = grade  // Images inherit text grade for now
+            }
+        } catch {
+            errorMessage = "Failed to update grade: \(error.localizedDescription)"
+        }
+    }
+    
+    /// Gets messages filtered by the current threshold for API calls
+    /// Turns are user+assistant pairs; if user message's textGrade < threshold, the whole turn is excluded
+    private func getFilteredMessagesForAPI(threshold: Int, excludingLast: Bool) async -> [Message] {
+        guard let chatId = selectedChat else { return [] }
+        
+        do {
+            let messagesWithGrades = try dataService.getMessagesWithGrades(forChat: chatId)
+            var filtered: [Message] = []
+            var i = 0
+            let count = excludingLast ? messagesWithGrades.count - 1 : messagesWithGrades.count
+            
+            while i < count {
+                let item = messagesWithGrades[i]
+                
+                // Skip intermediate tool loop messages (only include final responses)
+                // This prunes tool_use/tool_result exchanges from previous turns
+                guard item.isFinalResponse else {
+                    i += 1
+                    continue
+                }
+                
+                if item.message.role == .user {
+                    // Check if this user message meets threshold
+                    if item.textGrade >= threshold {
+                        // Include user message
+                        filtered.append(item.message)
+                        // Include following assistant message if it's a final response and present
+                        if i + 1 < count && messagesWithGrades[i + 1].message.role == .assistant {
+                            // Only include if it's the final response for this turn
+                            if messagesWithGrades[i + 1].isFinalResponse {
+                                filtered.append(messagesWithGrades[i + 1].message)
+                            }
+                            i += 2
+                            continue
+                        }
+                    } else {
+                        // Skip this turn entirely (user + assistant if present)
+                        if i + 1 < count && messagesWithGrades[i + 1].message.role == .assistant {
+                            i += 2
+                            continue
+                        }
+                    }
+                }
+                i += 1
+            }
+            
+            return filtered
+        } catch {
+            print("Failed to get filtered messages: \(error)")
+            return []
         }
     }
     
@@ -1078,16 +1276,22 @@ struct ContentView: View {
         // Capture pending images for API call before clearing
         let imagesToSend = pendingImages
         
+        // Generate a turnId for this conversation turn
+        let turnId = UUID().uuidString
+        
         let userMessage = Message(
             role: .user,
             content: persistedContent,
-            timestamp: Date()
+            timestamp: Date(),
+            turnId: turnId,
+            isFinalResponse: true  // User messages are always "final"
         )
 
         messages.append(userMessage)
 
         do {
-            try dataService.saveMessage(userMessage, chatId: chatId)
+            // New messages always get grade 5 (default)
+            try dataService.saveMessage(userMessage, chatId: chatId, turnId: turnId, isFinalResponse: true)
         } catch {
             print("Failed to save user message: \(error)")
         }
@@ -1103,43 +1307,51 @@ struct ContentView: View {
         toolActivityMessage = nil
         isLoading = true
 
+        // Capture threshold at send time for consistent filtering across tool loop
+        let sendThreshold = contextThreshold
+        
         Task {
             do {
-                // Build API messages, converting image markers to content blocks
-                var apiMessages: [[String: Any]] = messages.map { msg in
+                // Build API messages filtered by grade threshold
+                // Grade filtering happens here - messages with textGrade < threshold are excluded
+                let filteredMessages = await getFilteredMessagesForAPI(threshold: sendThreshold, excludingLast: true)
+                var apiMessages: [[String: Any]] = filteredMessages.map { msg in
                     buildAPIMessage(from: msg)
                 }
                 
-                // For the current message, ensure images are included properly
-                // The last user message should have the images we just sent
-                if !imagesToSend.isEmpty, let lastIndex = apiMessages.indices.last {
-                    // Rebuild the last message with explicit image blocks
-                    var contentBlocks: [[String: Any]] = []
-                    
-                    // Add image blocks first
-                    for pending in imagesToSend {
-                        contentBlocks.append([
-                            "type": "image",
-                            "source": [
-                                "type": "base64",
-                                "media_type": pending.mediaType,
-                                "data": pending.base64Data
-                            ]
-                        ])
-                    }
-                    
-                    // Add text block if there's text
-                    if !trimmedText.isEmpty {
-                        contentBlocks.append([
-                            "type": "text",
-                            "text": trimmedText
-                        ])
-                    }
-                    
-                    apiMessages[lastIndex] = [
-                        "role": "user",
-                        "content": contentBlocks
-                    ]
+                // Build current user message with proper image handling
+                var currentMessageContent: [[String: Any]] = []
+                
+                // Add image blocks first
+                for pending in imagesToSend {
+                    currentMessageContent.append([
+                        "type": "image",
+                        "source": [
+                            "type": "base64",
+                            "media_type": pending.mediaType,
+                            "data": pending.base64Data
+                        ]
+                    ])
+                }
+                
+                // Add text block if there's text
+                if !trimmedText.isEmpty {
+                    currentMessageContent.append([
+                        "type": "text",
+                        "text": trimmedText
+                    ])
+                }
+                
+                // Add current message to apiMessages
+                if currentMessageContent.isEmpty {
+                    // Shouldn't happen due to guard above, but fallback
+                    apiMessages.append(["role": "user", "content": trimmedText])
+                } else if currentMessageContent.count == 1 && imagesToSend.isEmpty {
+                    // Text only - can use simple string format
+                    apiMessages.append(["role": "user", "content": trimmedText])
+                } else {
+                    // Mixed content - use content blocks
+                    apiMessages.append(["role": "user", "content": currentMessageContent])
                 }
 
                 let tools = ToolService.toolDefinitions
@@ -1240,7 +1452,9 @@ struct ContentView: View {
                     id: assistantMessageId,
                     role: .assistant,
                     content: markerPrefix + fullResponse,
-                    timestamp: Date()
+                    timestamp: Date(),
+                    turnId: turnId,
+                    isFinalResponse: true  // This is the final response for this turn
                 )
 
                 messages.append(assistantMessage)
@@ -1249,7 +1463,8 @@ struct ContentView: View {
                 toolActivityMessage = nil
                 isLoading = false
 
-                try dataService.saveMessage(assistantMessage, chatId: chatId)
+                // Assistant messages inherit grade from their turn's user message (default 5)
+                try dataService.saveMessage(assistantMessage, chatId: chatId, turnId: turnId, isFinalResponse: true)
 
                 let isDefault = chatId == "Scratch Pad"
                 try dataService.saveMetadata(
@@ -1500,7 +1715,23 @@ struct PendingImageThumbnail: View {
 
 struct MessageBubble: View {
     let message: Message
+    let turnGrade: Int  // The grade that applies to this turn (user's grade for both user and assistant)
+    let threshold: Int
+    let onGradeChange: (Int) -> Void
+    
     @State private var expandedImageId: String?
+    
+    /// Computed opacity based on turn grade vs threshold
+    /// Both user and assistant messages in a turn dim together
+    private var dimOpacity: Double {
+        if turnGrade >= threshold {
+            return 1.0  // Full opacity - will be sent
+        } else if turnGrade == 0 {
+            return 0.2  // Heavily dimmed - grade 0
+        } else {
+            return 0.4  // Dimmed - excluded but not grade 0
+        }
+    }
     
     /// Parse image data from markers in content
     private var parsedImages: [(id: String, mediaType: String, base64Data: String)] {
@@ -1543,6 +1774,9 @@ struct MessageBubble: View {
         HStack(alignment: .top, spacing: 8) {
             if message.role == .user {
                 Spacer()
+                
+                // Grade control for user messages (always visible for at-a-glance scanning)
+                GradeControl(grade: message.textGrade, onGradeChange: onGradeChange)
             }
             
             if message.role == .assistant {
@@ -1570,6 +1804,40 @@ struct MessageBubble: View {
                 Spacer()
             }
         }
+        .opacity(dimOpacity)
+        .animation(.easeInOut(duration: 0.15), value: dimOpacity)
+    }
+}
+
+// MARK: - Grade Control View
+
+struct GradeControl: View {
+    let grade: Int
+    let onGradeChange: (Int) -> Void
+    
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(0...5, id: \.self) { value in
+                Button {
+                    onGradeChange(value)
+                } label: {
+                    Circle()
+                        .fill(value <= grade ? Color.blue : Color.gray.opacity(0.3))
+                        .frame(width: 8, height: 8)
+                }
+                .buttonStyle(.plain)
+            }
+            
+            Text("\(grade)")
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(minWidth: 12)
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 4)
+        .background(Color.gray.opacity(0.1))
+        .clipShape(Capsule())
+        .help("Grade: \(grade) — click dots to change")
     }
 }
 
@@ -1716,23 +1984,38 @@ struct MarkdownMessageView: View {
                 case .codeBlock(let language):
                     CodeBlockView(code: block.content, language: language)
                 case .text:
-                    VStack(alignment: .leading, spacing: 4) {
-                        ForEach(Array(block.content.components(separatedBy: "\n").enumerated()), id: \.offset) { index, line in
-                            if line.isEmpty {
-                                Spacer().frame(height: 8)
-                            } else if let attributedString = try? AttributedString(markdown: line) {
-                                Text(styleInlineCode(attributedString))
-                                    .textSelection(.enabled)
-                            } else {
-                                Text(line)
-                                    .textSelection(.enabled)
-                            }
-                        }
-                    }
+                    // Render as single Text view for cross-paragraph selection
+                    Text(buildAttributedText(from: block.content))
+                        .textSelection(.enabled)
                 }
             }
         }
         .lineSpacing(4)
+    }
+    
+    /// Build a single AttributedString from markdown content, preserving paragraph breaks
+    /// This allows text selection to span across paragraphs
+    private func buildAttributedText(from content: String) -> AttributedString {
+        var result = AttributedString()
+        let paragraphs = content.components(separatedBy: "\n")
+        
+        for (index, paragraph) in paragraphs.enumerated() {
+            if paragraph.isEmpty {
+                // Empty line = paragraph break
+                result.append(AttributedString("\n"))
+            } else if let attributed = try? AttributedString(markdown: paragraph) {
+                result.append(styleInlineCode(attributed))
+            } else {
+                result.append(AttributedString(paragraph))
+            }
+            
+            // Add newline between paragraphs (but not after the last one)
+            if index < paragraphs.count - 1 && !paragraph.isEmpty {
+                result.append(AttributedString("\n"))
+            }
+        }
+        
+        return result
     }
     
     private func parseContent() -> [MessageContentBlock] {

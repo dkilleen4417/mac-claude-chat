@@ -12,6 +12,14 @@
 import Foundation
 import SwiftData
 
+// MARK: - App Configuration
+
+/// Manual version tracking for SwiftData schema changes.
+/// Bump this BEFORE any schema change, deploy to ALL devices first.
+enum AppConfig {
+    static let buildVersion = 3  // Bumped for turnId + isFinalResponse fields
+}
+
 // MARK: - SwiftData Persistent Models (CloudKit-Compatible)
 
 @Model
@@ -23,6 +31,11 @@ final class ChatSession {
     var lastUpdated: Date = Date()
     var isDefault: Bool = false
     
+    /// Context management: minimum grade threshold for including messages (0-5)
+    /// Messages with textGrade < threshold are excluded from context
+    /// Default 0 = include all messages (current behavior)
+    var contextThreshold: Int = 0
+    
     // CloudKit: relationship must be optional
     @Relationship(deleteRule: .cascade, inverse: \ChatMessage.session)
     var messages: [ChatMessage]? = []
@@ -33,6 +46,7 @@ final class ChatSession {
         totalOutputTokens: Int = 0,
         lastUpdated: Date = Date(),
         isDefault: Bool = false,
+        contextThreshold: Int = 0,
         messages: [ChatMessage] = []
     ) {
         self.chatId = chatId
@@ -40,6 +54,7 @@ final class ChatSession {
         self.totalOutputTokens = totalOutputTokens
         self.lastUpdated = lastUpdated
         self.isDefault = isDefault
+        self.contextThreshold = contextThreshold
         self.messages = messages
     }
     
@@ -57,6 +72,22 @@ final class ChatMessage {
     var content: String = ""
     var timestamp: Date = Date()
     
+    /// Context management: relevance grade for text content (0-5, default 5)
+    /// Messages with textGrade < chat's contextThreshold are excluded from API calls
+    var textGrade: Int = 5
+    
+    /// Context management: relevance grade for image content (0-5, default 5)
+    /// Images with imageGrade < threshold are excluded (Phase 2 - currently rides with text)
+    var imageGrade: Int = 5
+    
+    /// Turn identity: UUID string shared by all messages in the same turn
+    /// Empty string for legacy messages (will be backfilled on migration)
+    var turnId: String = ""
+    
+    /// Distinguishes final assistant response from intermediate tool loop messages
+    /// True for user messages and final assistant responses; false for tool_use/tool_result intermediates
+    var isFinalResponse: Bool = true
+    
     // CloudKit: already optional — good
     var session: ChatSession?
     
@@ -64,12 +95,20 @@ final class ChatMessage {
         messageId: String = UUID().uuidString,
         role: String,
         content: String,
-        timestamp: Date = Date()
+        timestamp: Date = Date(),
+        textGrade: Int = 5,
+        imageGrade: Int = 5,
+        turnId: String = "",
+        isFinalResponse: Bool = true
     ) {
         self.messageId = messageId
         self.role = role
         self.content = content
         self.timestamp = timestamp
+        self.textGrade = textGrade
+        self.imageGrade = imageGrade
+        self.turnId = turnId
+        self.isFinalResponse = isFinalResponse
     }
 }
 
@@ -80,12 +119,20 @@ struct Message: Identifiable {
     let role: Role
     let content: String
     let timestamp: Date
+    var textGrade: Int
+    var imageGrade: Int
+    var turnId: String
+    var isFinalResponse: Bool
     
-    init(id: UUID = UUID(), role: Role, content: String, timestamp: Date = Date()) {
+    init(id: UUID = UUID(), role: Role, content: String, timestamp: Date = Date(), textGrade: Int = 5, imageGrade: Int = 5, turnId: String = "", isFinalResponse: Bool = true) {
         self.id = id
         self.role = role
         self.content = content
         self.timestamp = timestamp
+        self.textGrade = textGrade
+        self.imageGrade = imageGrade
+        self.turnId = turnId
+        self.isFinalResponse = isFinalResponse
     }
     
     enum Role {

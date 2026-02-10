@@ -232,10 +232,12 @@ and when rebuilding conversation history from persisted messages.
 The data layer uses two SwiftData @Model classes:
 
 - **ChatSession** — A named conversation. Has chatId (string, used as display name),
-  cumulative token counts, lastUpdated timestamp, isDefault flag, and a cascade
-  relationship to ChatMessage.
-- **ChatMessage** — A single message with role ("user"/"assistant"), content, and
-  timestamp.
+  cumulative token counts, lastUpdated timestamp, isDefault flag, contextThreshold
+  (0-5 for filtering), and a cascade relationship to ChatMessage.
+- **ChatMessage** — A single message with role ("user"/"assistant"), content,
+  timestamp, textGrade (0-5, default 5), imageGrade (0-5, default 5), turnId
+  (UUID string linking messages in the same turn), and isFinalResponse (true for
+  user messages and final assistant responses, false for intermediate tool messages).
 
 CloudKit compatibility imposes constraints:
 - No `@Attribute(.unique)` — uniqueness is enforced in app logic
@@ -334,6 +336,14 @@ the app's focus is on being the best Claude client it can be, not a generic
 LLM frontend.
 
 Recent additions:
+- **Context management (Phase 1)** — Turn-based grade system for controlling what
+  context is sent to Claude. Each turn (user message + assistant response) has a
+  textGrade (0-5). Messages share a turnId so they dim together. Per-turn grade
+  controls (6 tappable dots) are always visible on user messages. Context threshold
+  (tappable cycling number in metadata bar) filters which turns are included in API
+  calls — turns with grade < threshold are excluded and visually dimmed. Bulk actions
+  ("Grade All 0" / "Grade All 5") available via menu. Message area has 24pt bottom
+  spacer with auto-scroll to thinking/tool indicators. `AppConfig.buildVersion` = 3.
 - **Image attachments** — Users can attach screenshots and images to messages via
   paste (⌘V), drag-and-drop, or file picker. Images are downscaled to 1024px max,
   encoded as JPEG base64, and stored using the embedded marker pattern. Renders as
