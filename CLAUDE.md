@@ -30,7 +30,9 @@ literally — don't interpret, don't improve, don't add what wasn't asked for.
 - **Schema versioning:** Bump `AppConfig.buildVersion` before any SwiftData
   schema change. Deploy to ALL devices before making the change.
 - **Bundle/entitlements:** Bundle prefix is JCC. iCloud container is
-  iCloud.JCC.mac-claude-chat. Don't modify entitlements without explicit direction.
+  iCloud.JCC.mac-claude-chat. The active entitlements file is
+  `mac-claude-chat.entitlements` (hyphens), NOT `mac_claude_chat.entitlements`
+  (underscores). Don't modify entitlements without explicit direction.
 
 ---
 
@@ -41,7 +43,7 @@ mac-claude-chat/
 │
 │   ── Core ──
 ├── mac_claude_chatApp.swift          (69)   @main, WindowGroup, menu commands
-├── ContentView.swift               (1329)   Main view + all app logic
+├── ContentView.swift               (~1350)  Main view + all app logic + publishChat
 ├── Models.swift                     (227)   SwiftData models, ClaudeModel enum
 │
 │   ── Services ──
@@ -51,7 +53,7 @@ mac-claude-chat/
 ├── KeychainService.swift            (128)   API key storage + env fallback
 │
 │   ── Message Rendering ──
-├── MessageBubble.swift              (106)   Message row + grade controls + dimming
+├── MessageBubble.swift              (~115)   Message row + hover grade controls + dimming
 ├── MarkdownMessageView.swift        (189)   Markdown parsing, dispatches to cards/code
 ├── CodeBlockView.swift              (147)   Fenced code + line numbers + copy button
 ├── SyntaxHighlighter.swift          (381)   Regex tokenizer, Dracula palette
@@ -70,6 +72,10 @@ mac-claude-chat/
 ├── APIKeySetupView.swift            (184)   Settings sheet for API keys
 ├── TokenAuditView.swift             (238)   Per-turn token breakdown sheet
 ├── ChatExporter.swift               (101)   Selective markdown export + MarkdownFileDocument
+
+Entitlements:
+├── mac-claude-chat.entitlements              Active (CloudKit, keychain, user-selected r/w)
+├── mac_claude_chat.entitlements              Sandbox-only (app-sandbox, network, keychain)
 ```
 
 ---

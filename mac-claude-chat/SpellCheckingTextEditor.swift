@@ -21,6 +21,7 @@ struct SpellCheckingTextEditor: NSViewRepresentable {
     @Binding var contentHeight: CGFloat
     var onReturn: (() -> Void)?
     var onImagePaste: ((Data) -> Void)?
+    var onTextFileDrop: ((String) -> Void)?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -38,6 +39,9 @@ struct SpellCheckingTextEditor: NSViewRepresentable {
         textView.delegate = context.coordinator
         textView.onImagePaste = { imageData in
             context.coordinator.parent.onImagePaste?(imageData)
+        }
+        textView.onTextFileDrop = { text in
+            context.coordinator.parent.onTextFileDrop?(text)
         }
         textView.isRichText = false
         textView.font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
@@ -143,6 +147,7 @@ struct SpellCheckingTextEditor: NSViewRepresentable {
 /// NSTextView subclass that intercepts paste and drag-drop to handle images
 class PasteInterceptingTextView: NSTextView {
     var onImagePaste: ((Data) -> Void)?
+    var onTextFileDrop: ((String) -> Void)?
 
     override func paste(_ sender: Any?) {
         let pasteboard = NSPasteboard.general
@@ -164,6 +169,22 @@ class PasteInterceptingTextView: NSTextView {
                    let imageData = try? Data(contentsOf: url) {
                     onImagePaste?(imageData)
                     return
+                }
+            }
+        }
+
+        // Check for text file URLs
+        if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] {
+            for url in urls {
+                if let uti = try? url.resourceValues(forKeys: [.typeIdentifierKey]).typeIdentifier,
+                   let type = UTType(uti),
+                   (type.conforms(to: .text) || type.conforms(to: .sourceCode) || type.conforms(to: .json) || type.conforms(to: .xml)) {
+                    if let content = try? String(contentsOf: url, encoding: .utf8) {
+                        let filename = url.lastPathComponent
+                        let wrappedContent = "[\(filename)]\n\n\(content)"
+                        onTextFileDrop?(wrappedContent)
+                        return
+                    }
                 }
             }
         }
@@ -195,6 +216,17 @@ class PasteInterceptingTextView: NSTextView {
             return .copy
         }
 
+        // Check for text-based file drops
+        if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] {
+            for url in urls {
+                if let uti = try? url.resourceValues(forKeys: [.typeIdentifierKey]).typeIdentifier,
+                   let type = UTType(uti),
+                   (type.conforms(to: .text) || type.conforms(to: .sourceCode) || type.conforms(to: .json) || type.conforms(to: .xml)) {
+                    return .copy
+                }
+            }
+        }
+
         // Fall back to default behavior for text drops
         return super.draggingEntered(sender)
     }
@@ -211,6 +243,22 @@ class PasteInterceptingTextView: NSTextView {
                    let imageData = try? Data(contentsOf: url) {
                     onImagePaste?(imageData)
                     return true
+                }
+            }
+        }
+
+        // Try to handle as text file URL
+        if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] {
+            for url in urls {
+                if let uti = try? url.resourceValues(forKeys: [.typeIdentifierKey]).typeIdentifier,
+                   let type = UTType(uti),
+                   (type.conforms(to: .text) || type.conforms(to: .sourceCode) || type.conforms(to: .json) || type.conforms(to: .xml)) {
+                    if let content = try? String(contentsOf: url, encoding: .utf8) {
+                        let filename = url.lastPathComponent
+                        let wrappedContent = "[\(filename)]\n\n\(content)"
+                        onTextFileDrop?(wrappedContent)
+                        return true
+                    }
                 }
             }
         }

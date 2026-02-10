@@ -6,6 +6,11 @@
 //
 
 import SwiftUI
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 
 // MARK: - Message Bubble View
 
@@ -14,8 +19,10 @@ struct MessageBubble: View {
     let turnGrade: Int  // The grade that applies to this turn (user's grade for both user and assistant)
     let threshold: Int
     let onGradeChange: (Int) -> Void
+    let onCopyTurn: () -> Void
 
     @State private var expandedImageId: String?
+    @State private var isHovered = false
 
     /// Computed opacity based on turn grade vs threshold
     /// Both user and assistant messages in a turn dim together
@@ -71,8 +78,11 @@ struct MessageBubble: View {
             if message.role == .user {
                 Spacer()
 
-                // Grade control for user messages (always visible for at-a-glance scanning)
-                GradeControl(grade: message.textGrade, onGradeChange: onGradeChange)
+                // Grade control for user messages — appears on hover
+                if isHovered {
+                    GradeControl(grade: message.textGrade, onGradeChange: onGradeChange)
+                        .transition(.opacity)
+                }
             }
 
             if message.role == .assistant {
@@ -102,5 +112,49 @@ struct MessageBubble: View {
         }
         .opacity(dimOpacity)
         .animation(.easeInOut(duration: 0.15), value: dimOpacity)
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isHovered = hovering
+            }
+        }
+        .contextMenu {
+            Button("Copy Message") {
+                let cleanContent: String
+                if message.role == .assistant {
+                    // Strip markers from assistant messages
+                    let weatherPattern = "<!--weather:.+?-->\\n?"
+                    let imagePattern = "<!--image:\\{.+?\\}-->\\n?"
+                    var text = message.content
+                    if let regex = try? NSRegularExpression(pattern: weatherPattern, options: []) {
+                        let range = NSRange(text.startIndex..., in: text)
+                        text = regex.stringByReplacingMatches(in: text, options: [], range: range, withTemplate: "")
+                    }
+                    if let regex = try? NSRegularExpression(pattern: imagePattern, options: []) {
+                        let range = NSRange(text.startIndex..., in: text)
+                        text = regex.stringByReplacingMatches(in: text, options: [], range: range, withTemplate: "")
+                    }
+                    cleanContent = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                } else {
+                    // Strip image markers from user messages
+                    let imagePattern = "<!--image:\\{.+?\\}-->\\n?"
+                    var text = message.content
+                    if let regex = try? NSRegularExpression(pattern: imagePattern, options: []) {
+                        let range = NSRange(text.startIndex..., in: text)
+                        text = regex.stringByReplacingMatches(in: text, options: [], range: range, withTemplate: "")
+                    }
+                    cleanContent = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+                #if os(macOS)
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(cleanContent, forType: .string)
+                #else
+                UIPasteboard.general.string = cleanContent
+                #endif
+            }
+
+            Button("Copy Turn") {
+                onCopyTurn()
+            }
+        }
     }
 }

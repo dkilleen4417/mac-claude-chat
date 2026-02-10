@@ -288,7 +288,7 @@ struct ContentView: View {
             // Defer panel presentation to escape SwiftUI's update cycle
             DispatchQueue.main.async {
                 let panel = NSSavePanel()
-                panel.allowedContentTypes = [.plainText]
+                panel.allowedContentTypes = [UTType(filenameExtension: "md") ?? .plainText]
                 panel.nameFieldStringValue = filename
                 panel.title = "Publish Chat"
                 panel.prompt = "Save"
@@ -391,6 +391,9 @@ struct ContentView: View {
                                     threshold: contextThreshold,
                                     onGradeChange: { newGrade in
                                         updateMessageGrade(messageId: message.id, grade: newGrade)
+                                    },
+                                    onCopyTurn: {
+                                        copyTurn(for: message)
                                     }
                                 )
                                 .id(message.id)
@@ -631,6 +634,9 @@ struct ContentView: View {
                             onReturn: { sendMessage() },
                             onImagePaste: { imageData in
                                 addImageFromData(imageData)
+                            },
+                            onTextFileDrop: { text in
+                                messageText += text
                             }
                         )
                         .frame(height: min(max(inputHeight, 36), 200))
@@ -867,6 +873,51 @@ struct ContentView: View {
         } catch {
             errorMessage = "Failed to update grade: \(error.localizedDescription)"
         }
+    }
+
+    /// Copy both user and assistant messages for a given turn to clipboard
+    private func copyTurn(for message: Message) {
+        // Find all messages in this turn
+        let turnMessages: [Message]
+        if !message.turnId.isEmpty {
+            turnMessages = messages.filter { $0.turnId == message.turnId && $0.isFinalResponse }
+        } else {
+            // Legacy messages without turnId: find the user+assistant pair by position
+            if let index = messages.firstIndex(where: { $0.id == message.id }) {
+                var pair: [Message] = []
+                if message.role == .user {
+                    pair.append(message)
+                    if index + 1 < messages.count && messages[index + 1].role == .assistant {
+                        pair.append(messages[index + 1])
+                    }
+                } else {
+                    // Assistant: look back for user
+                    if index > 0 && messages[index - 1].role == .user {
+                        pair.append(messages[index - 1])
+                    }
+                    pair.append(message)
+                }
+                turnMessages = pair
+            } else {
+                turnMessages = [message]
+            }
+        }
+
+        // Build clean text
+        var parts: [String] = []
+        for msg in turnMessages.sorted(by: { $0.timestamp < $1.timestamp }) {
+            let cleaned = stripAllMarkers(from: msg.content)
+            let prefix = msg.role == .user ? "**Drew:**" : "**Claude:**"
+            parts.append("\(prefix)\n\(cleaned)")
+        }
+        let fullText = parts.joined(separator: "\n\n")
+
+        #if os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(fullText, forType: .string)
+        #else
+        UIPasteboard.general.string = fullText
+        #endif
     }
 
     /// Gets messages filtered by the current threshold for API calls
