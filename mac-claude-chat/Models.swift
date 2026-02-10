@@ -224,4 +224,5 @@ extension Notification.Name {
     static let deleteChat = Notification.Name("deleteChat")
     static let selectModel = Notification.Name("selectModel")
     static let showAPIKeySettings = Notification.Name("showAPIKeySettings")
+    static let publishChat = Notification.Name("publishChat")
 }

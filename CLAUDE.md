@@ -34,7 +34,7 @@ literally — don't interpret, don't improve, don't add what wasn't asked for.
 
 ---
 
-## File Map (21 Swift files, 4,922 lines total)
+## File Map (22 Swift files, ~5,030 lines total)
 
 ```
 mac-claude-chat/
@@ -69,6 +69,7 @@ mac-claude-chat/
 │   ── Other Views ──
 ├── APIKeySetupView.swift            (184)   Settings sheet for API keys
 ├── TokenAuditView.swift             (238)   Per-turn token breakdown sheet
+├── ChatExporter.swift               (101)   Selective markdown export + MarkdownFileDocument
 ```
 
 ---

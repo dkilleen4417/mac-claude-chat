@@ -126,6 +126,12 @@ struct ContentView: View {
                                 Label("Add to Project", systemImage: "folder")
                             }
 
+                            Button {
+                                publishChat(chatId: chat.id)
+                            } label: {
+                                Label("Publish…", systemImage: "arrow.up.doc")
+                            }
+
                             if !chat.isDefault {
                                 Divider()
                                 Button(role: .destructive) {
@@ -225,6 +231,11 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .showAPIKeySettings)) { _ in
             showingAPIKeySetup = true
         }
+        .onReceive(NotificationCenter.default.publisher(for: .publishChat)) { _ in
+            if let chatId = selectedChat {
+                publishChat(chatId: chatId)
+            }
+        }
         .sheet(isPresented: $showingAPIKeySetup) {
             APIKeySetupView(isPresented: $showingAPIKeySetup) {
                 needsAPIKey = false
@@ -239,6 +250,7 @@ struct ContentView: View {
         .sheet(isPresented: $showingTokenAudit) {
             TokenAuditView(messages: messages, model: selectedModel)
         }
+
         .task {
             if !claudeService.hasAPIKey {
                 needsAPIKey = true
@@ -258,6 +270,43 @@ struct ContentView: View {
         case ..<604800: return "\(Int(seconds / 86400))d ago"
         case ..<2592000: return "\(Int(seconds / 604800))w ago"
         default: return "Long ago"
+        }
+    }
+
+    private func publishChat(chatId: String) {
+        do {
+            let chatMessages = try dataService.loadMessages(forChat: chatId)
+            let threshold = dataService.getContextThreshold(forChat: chatId)
+            let content = ChatExporter.exportMarkdown(
+                chatName: chatId,
+                messages: chatMessages,
+                threshold: threshold
+            )
+            let filename = "\(chatId).md"
+
+            #if os(macOS)
+            // Defer panel presentation to escape SwiftUI's update cycle
+            DispatchQueue.main.async {
+                let panel = NSSavePanel()
+                panel.allowedContentTypes = [.plainText]
+                panel.nameFieldStringValue = filename
+                panel.title = "Publish Chat"
+                panel.prompt = "Save"
+
+                panel.begin { response in
+                    if response == .OK, let url = panel.url {
+                        do {
+                            try content.write(to: url, atomically: true, encoding: .utf8)
+                            print("Published chat to: \(url)")
+                        } catch {
+                            self.errorMessage = "Failed to save: \(error.localizedDescription)"
+                        }
+                    }
+                }
+            }
+            #endif
+        } catch {
+            errorMessage = "Failed to export: \(error.localizedDescription)"
         }
     }
 

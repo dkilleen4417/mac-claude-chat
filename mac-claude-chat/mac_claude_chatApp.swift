@@ -36,6 +36,13 @@ struct mac_claude_chatApp: App {
                     NotificationCenter.default.post(name: .deleteChat, object: nil)
                 }
                 .keyboardShortcut(.delete, modifiers: .command)
+                
+                Divider()
+                
+                Button("Publish Chat\u{2026}") {
+                    NotificationCenter.default.post(name: .publishChat, object: nil)
+                }
+                .keyboardShortcut("e", modifiers: .command)
             }
             
             CommandMenu("View") {
