@@ -47,17 +47,22 @@ built from Foundation and SwiftUI primitives.
 └──────────────┬───────────────────────────────────┘
                │
 ┌──────────────▼───────────────────────────────────┐
-│  ContentView.swift (~2400 lines)                 │
-│  The entire UI lives here:                       │
+│  ContentView.swift (~1,329 lines)                │
+│  The main UI container:                          │
 │  - NavigationSplitView (sidebar + detail)        │
 │  - Chat list management                          │
 │  - Message display with streaming                │
 │  - Input bar with model selector + image attach  │
 │  - Tool activity indicators                      │
 │  - The agentic tool loop (sendMessage)           │
-│  Also contains: MessageBubble, MarkdownMessage,  │
-│  CodeBlockView, WeatherCardView, ImageProcessor, │
-│  SpellCheckingTextEditor, SyntaxHighlighter      │
+│                                                  │
+│  Extracted view components (12 files):           │
+│  - SyntaxHighlighter, CodeBlockView,             │
+│    WeatherCardView, MessageBubble,               │
+│    MarkdownMessageView, GradeControl,            │
+│    UserMessageContent, MessageImageView,         │
+│    PendingImageThumbnail, ImageProcessor,        │
+│    PlatformUtilities, SpellCheckingTextEditor    │
 └──────┬──────────┬──────────┬─────────────────────┘
        │          │          │
 ┌──────▼───┐ ┌───▼─────┐ ┌──▼──────────────┐
@@ -387,6 +392,14 @@ Recent additions:
   `WeatherData` gained two `Int` fields (`observationTime`, `timezoneOffset`);
   old persisted cards without them fall back gracefully (no timestamp shown,
   sensible default gradient).
+- **ContentView decomposition** — Extracted 12 view components into separate files
+  to improve maintainability. ContentView reduced from 2,802 to 1,329 lines (53%
+  reduction). Three phases: (1) SyntaxHighlighter, CodeBlockView, WeatherCardView;
+  (2) message-rendering views (MessageBubble, MarkdownMessageView, GradeControl,
+  UserMessageContent, MessageImageView, PendingImageThumbnail); (3) utility types
+  (ImageProcessor, PlatformUtilities, SpellCheckingTextEditor). All extracted
+  components are module-level types that ContentView references — no behavioral
+  changes, pure refactor.
 
 Areas open for development:
 - **Context management enhancements** (designed, not yet implemented):
@@ -605,13 +618,32 @@ mac-claude-chat/
 ├── directives/                        ← historical cascade directives (context only)
 ├── mac-claude-chat/
 │   ├── mac_claude_chatApp.swift       ← @main, WindowGroup, menu commands
-│   ├── ContentView.swift              ← all UI + tool loop + message sending
+│   ├── ContentView.swift              ← main UI container + tool loop (~1,329 lines)
+│   │
+│   │   ─── Extracted View Components ───
+│   ├── SyntaxHighlighter.swift        ← regex-based code tokenizer, Dracula palette
+│   ├── CodeBlockView.swift            ← fenced code rendering with line numbers
+│   ├── WeatherCardView.swift          ← gradient weather cards from tool results
+│   ├── MessageBubble.swift            ← message container with grade controls
+│   ├── MarkdownMessageView.swift      ← markdown + marker parsing, includes MessageContentBlock
+│   ├── GradeControl.swift             ← 6-dot grade selector for context management
+│   ├── UserMessageContent.swift       ← user message with image thumbnails
+│   ├── MessageImageView.swift         ← expandable image display
+│   ├── PendingImageThumbnail.swift    ← pre-send image preview with remove button
+│   ├── ImageProcessor.swift           ← image downscale/encode + PendingImage struct
+│   ├── PlatformUtilities.swift        ← PlatformColor + InputHeightPreferenceKey
+│   ├── SpellCheckingTextEditor.swift  ← NSTextView wrapper + paste interception
+│   │
+│   │   ─── Services ───
 │   ├── ClaudeService.swift            ← streaming HTTP to Anthropic API
-│   ├── ToolService.swift              ← tool definitions, dispatch, ToolResult, WeatherData, HourlyForecast
+│   ├── ToolService.swift              ← tool definitions, dispatch, ToolResult, WeatherData
 │   ├── SwiftDataService.swift         ← CRUD + rename + CloudKit deduplication
 │   ├── KeychainService.swift          ← secure API key storage + env fallback
+│   │
+│   │   ─── Other ───
 │   ├── Models.swift                   ← SwiftData models + in-memory types + ClaudeModel enum
 │   ├── APIKeySetupView.swift          ← settings sheet for all API keys
+│   ├── TokenAuditView.swift           ← per-turn token usage display
 │   ├── mac-claude-chat.entitlements   ← keychain, iCloud, CloudKit, push
 │   └── Assets.xcassets/               ← app icon and colors
 ├── mac-claude-chat.xcodeproj/
