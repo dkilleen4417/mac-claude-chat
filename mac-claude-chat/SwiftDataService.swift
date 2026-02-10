@@ -18,7 +18,7 @@ class SwiftDataService {
         self.modelContext = modelContext
     }
     
-    func saveMessage(_ message: Message, chatId: String, textGrade: Int = 5, imageGrade: Int = 5, turnId: String = "", isFinalResponse: Bool = true) throws {
+    func saveMessage(_ message: Message, chatId: String, textGrade: Int = 5, imageGrade: Int = 5, turnId: String = "", isFinalResponse: Bool = true, inputTokens: Int = 0, outputTokens: Int = 0) throws {
         let descriptor = FetchDescriptor<ChatSession>(
             predicate: #Predicate { $0.chatId == chatId }
         )
@@ -35,7 +35,9 @@ class SwiftDataService {
             textGrade: textGrade,
             imageGrade: imageGrade,
             turnId: turnId,
-            isFinalResponse: isFinalResponse
+            isFinalResponse: isFinalResponse,
+            inputTokens: inputTokens,
+            outputTokens: outputTokens
         )
         chatMessage.session = session
         session.safeMessages.append(chatMessage)
@@ -64,7 +66,9 @@ class SwiftDataService {
                     textGrade: chatMessage.textGrade,
                     imageGrade: chatMessage.imageGrade,
                     turnId: chatMessage.turnId,
-                    isFinalResponse: chatMessage.isFinalResponse
+                    isFinalResponse: chatMessage.isFinalResponse,
+                    inputTokens: chatMessage.inputTokens,
+                    outputTokens: chatMessage.outputTokens
                 )
             }
     }
@@ -235,7 +239,9 @@ class SwiftDataService {
                         textGrade: chatMessage.textGrade,
                         imageGrade: chatMessage.imageGrade,
                         turnId: chatMessage.turnId,
-                        isFinalResponse: chatMessage.isFinalResponse
+                        isFinalResponse: chatMessage.isFinalResponse,
+                        inputTokens: chatMessage.inputTokens,
+                        outputTokens: chatMessage.outputTokens
                     ),
                     textGrade: chatMessage.textGrade,
                     imageGrade: chatMessage.imageGrade,

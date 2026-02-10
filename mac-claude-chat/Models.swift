@@ -17,7 +17,7 @@ import SwiftData
 /// Manual version tracking for SwiftData schema changes.
 /// Bump this BEFORE any schema change, deploy to ALL devices first.
 enum AppConfig {
-    static let buildVersion = 3  // Bumped for turnId + isFinalResponse fields
+    static let buildVersion = 4  // Bumped for inputTokens + outputTokens fields
 }
 
 // MARK: - SwiftData Persistent Models (CloudKit-Compatible)
@@ -88,6 +88,12 @@ final class ChatMessage {
     /// True for user messages and final assistant responses; false for tool_use/tool_result intermediates
     var isFinalResponse: Bool = true
     
+    /// Per-turn token tracking: input tokens for this turn's API call
+    var inputTokens: Int = 0
+    
+    /// Per-turn token tracking: output tokens for this turn's API response
+    var outputTokens: Int = 0
+    
     // CloudKit: already optional — good
     var session: ChatSession?
     
@@ -99,7 +105,9 @@ final class ChatMessage {
         textGrade: Int = 5,
         imageGrade: Int = 5,
         turnId: String = "",
-        isFinalResponse: Bool = true
+        isFinalResponse: Bool = true,
+        inputTokens: Int = 0,
+        outputTokens: Int = 0
     ) {
         self.messageId = messageId
         self.role = role
@@ -109,6 +117,8 @@ final class ChatMessage {
         self.imageGrade = imageGrade
         self.turnId = turnId
         self.isFinalResponse = isFinalResponse
+        self.inputTokens = inputTokens
+        self.outputTokens = outputTokens
     }
 }
 
@@ -123,8 +133,10 @@ struct Message: Identifiable {
     var imageGrade: Int
     var turnId: String
     var isFinalResponse: Bool
+    var inputTokens: Int
+    var outputTokens: Int
     
-    init(id: UUID = UUID(), role: Role, content: String, timestamp: Date = Date(), textGrade: Int = 5, imageGrade: Int = 5, turnId: String = "", isFinalResponse: Bool = true) {
+    init(id: UUID = UUID(), role: Role, content: String, timestamp: Date = Date(), textGrade: Int = 5, imageGrade: Int = 5, turnId: String = "", isFinalResponse: Bool = true, inputTokens: Int = 0, outputTokens: Int = 0) {
         self.id = id
         self.role = role
         self.content = content
@@ -133,6 +145,8 @@ struct Message: Identifiable {
         self.imageGrade = imageGrade
         self.turnId = turnId
         self.isFinalResponse = isFinalResponse
+        self.inputTokens = inputTokens
+        self.outputTokens = outputTokens
     }
     
     enum Role {

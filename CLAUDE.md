@@ -119,6 +119,13 @@ This means the app supports multi-step tool chains — Claude can search the web
 see results, then check the weather, then compose a response using both — all
 in a single user message.
 
+**Important: Tool message pruning.** Intermediate tool messages (tool_use assistant
+responses, tool_result messages) are only needed during the current turn's active
+tool loop. On subsequent turns, the message builder excludes intermediate messages
+(isFinalResponse == false) from the API payload — only the user message and the
+final assistant response are sent as context. This significantly reduces token
+cost for tool-heavy conversations.
+
 ### ClaudeService — Two Streaming Methods
 
 ClaudeService has two streaming paths, both using URLSession byte streaming:
@@ -336,14 +343,25 @@ the app's focus is on being the best Claude client it can be, not a generic
 LLM frontend.
 
 Recent additions:
-- **Context management (Phase 1)** — Turn-based grade system for controlling what
-  context is sent to Claude. Each turn (user message + assistant response) has a
-  textGrade (0-5). Messages share a turnId so they dim together. Per-turn grade
-  controls (6 tappable dots) are always visible on user messages. Context threshold
-  (tappable cycling number in metadata bar) filters which turns are included in API
-  calls — turns with grade < threshold are excluded and visually dimmed. Bulk actions
-  ("Grade All 0" / "Grade All 5") available via menu. Message area has 24pt bottom
-  spacer with auto-scroll to thinking/tool indicators. `AppConfig.buildVersion` = 3.
+- **Context management** — Per-turn grade system for controlling what context is
+  sent to Claude, addressing API token cost. Each turn has a textGrade (0-5) and
+  a separate imageGrade (0-5) — images can be dropped from context independently
+  since they consume 1000+ tokens as base64 but are dead weight once Claude has
+  analyzed them. Messages share a turnId (UUID) linking all messages in the same
+  turn, including intermediate tool messages. Per-turn grade controls (6 tappable
+  dots) are always visible on user messages. Context threshold (tappable cycling
+  number in metadata bar, "Context: N") filters which turns are included in API
+  calls — turns with textGrade < threshold are excluded and visually dimmed. Three
+  dimming levels: full opacity (grade >= threshold), 40% dim (grade < threshold
+  but > 0), 20% dim (grade == 0). The current turn is always sent regardless of
+  grade. System prompt is always sent. Bulk actions ("Grade All 0" / "Grade All 5")
+  available via menu. Tool message pruning: intermediate tool messages
+  (isFinalResponse == false) are excluded from the API payload on subsequent turns
+  — only user message + final assistant response are sent as history. This alone
+  delivers significant token savings independent of grading. A one-time backfill
+  migration on app launch assigns turnIds to existing messages by chronological
+  pairing. Message area has 24pt bottom spacer with auto-scroll to thinking/tool
+  indicators. `AppConfig.buildVersion` = 3.
 - **Image attachments** — Users can attach screenshots and images to messages via
   paste (⌘V), drag-and-drop, or file picker. Images are downscaled to 1024px max,
   encoded as JPEG base64, and stored using the embedded marker pattern. Renders as
@@ -371,6 +389,17 @@ Recent additions:
   sensible default gradient).
 
 Areas open for development:
+- **Context management enhancements** (designed, not yet implemented):
+  - *Auto-decay* — Grades automatically decrement on each send (5→4→3→...→0)
+    unless pinned. Images decay at 2x rate. Natural memory fade.
+  - *AI-assisted grading* — Cheap Haiku call after each response to evaluate
+    turn importance and set grades. Removes manual work, preserves user override.
+  - *Iceberg compression* — Middle grades (3-4) send AI-generated summaries
+    instead of full content. "Tip of iceberg" context at reduced token cost.
+  - *Turn labels* — AI-generated 3-6 word names per turn ("Current Catonsville
+    weather"). Human-readable navigation and seeds for future compression.
+  - *Pre-send token estimate* — Show estimated token count based on current
+    grades/threshold before sending. Real-time cost visibility.
 - **Rich search results** — Apply the same marker pattern to web search for
   card-based result display.
 - **Apple platform integration** — Shortcuts, widgets, Siri.

@@ -398,6 +398,7 @@ struct ContentView: View {
     @State private var pendingImages: [PendingImage] = []
     @State private var showingImagePicker: Bool = false
     @State private var contextThreshold: Int = 0  // Context management: grade threshold for filtering
+    @State private var showingTokenAudit: Bool = false
 
     @Environment(\.modelContext) private var modelContext
     private let claudeService = ClaudeService()
@@ -595,6 +596,9 @@ struct ContentView: View {
                 needsAPIKey = false
             }
             .interactiveDismissDisabled(true)
+        }
+        .sheet(isPresented: $showingTokenAudit) {
+            TokenAuditView(messages: messages, model: selectedModel)
         }
         .task {
             if !claudeService.hasAPIKey {
@@ -825,9 +829,15 @@ struct ContentView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     
-                    Text("\(totalInputTokens + totalOutputTokens) tokens")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    Button {
+                        showingTokenAudit = true
+                    } label: {
+                        Text("\(totalInputTokens + totalOutputTokens) tokens")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("View per-turn token audit")
                     
                     Text("•")
                         .font(.caption)
@@ -1454,7 +1464,9 @@ struct ContentView: View {
                     content: markerPrefix + fullResponse,
                     timestamp: Date(),
                     turnId: turnId,
-                    isFinalResponse: true  // This is the final response for this turn
+                    isFinalResponse: true,  // This is the final response for this turn
+                    inputTokens: totalStreamInputTokens,
+                    outputTokens: totalStreamOutputTokens
                 )
 
                 messages.append(assistantMessage)
@@ -1464,7 +1476,8 @@ struct ContentView: View {
                 isLoading = false
 
                 // Assistant messages inherit grade from their turn's user message (default 5)
-                try dataService.saveMessage(assistantMessage, chatId: chatId, turnId: turnId, isFinalResponse: true)
+                // Persist per-turn token counts for the audit view
+                try dataService.saveMessage(assistantMessage, chatId: chatId, turnId: turnId, isFinalResponse: true, inputTokens: totalStreamInputTokens, outputTokens: totalStreamOutputTokens)
 
                 let isDefault = chatId == "Scratch Pad"
                 try dataService.saveMetadata(
@@ -1575,7 +1588,9 @@ struct ContentView: View {
     }
     
     /// Build API message format from a stored Message
-    /// Converts image markers to content blocks for the API
+    /// Converts image markers to placeholder text (images already analyzed by Claude)
+    /// Note: This function is only called for PAST messages in conversation history.
+    /// Current-turn images are handled separately with full base64 data.
     private func buildAPIMessage(from message: Message) -> [String: Any] {
         let role = message.role == .user ? "user" : "assistant"
         
@@ -1584,19 +1599,14 @@ struct ContentView: View {
             let (images, cleanText) = parseImageMarkers(from: message.content)
             
             if !images.isEmpty {
-                // Build content array with image blocks
+                // Past images: replace with lightweight placeholder to save tokens
+                // (base64 images can be 10,000-50,000+ tokens each)
                 var contentBlocks: [[String: Any]] = []
                 
-                for imageData in images {
-                    contentBlocks.append([
-                        "type": "image",
-                        "source": [
-                            "type": "base64",
-                            "media_type": imageData.mediaType,
-                            "data": imageData.base64Data
-                        ]
-                    ])
-                }
+                contentBlocks.append([
+                    "type": "text",
+                    "text": "[Image previously shared and analyzed]"
+                ])
                 
                 // Add text block if there's text
                 let trimmedText = cleanText.trimmingCharacters(in: .whitespacesAndNewlines)
