@@ -409,4 +409,197 @@ class SwiftDataService {
         
         try modelContext.save()
     }
+
+    // MARK: - Web Tools CRUD
+
+    /// Returns all web tool categories, sorted by displayOrder.
+    func loadWebToolCategories() throws -> [WebToolCategory] {
+        let descriptor = FetchDescriptor<WebToolCategory>(
+            sortBy: [SortDescriptor(\.displayOrder)]
+        )
+        return try modelContext.fetch(descriptor)
+    }
+
+    /// Returns enabled web tool categories only, sorted by displayOrder.
+    func loadEnabledWebToolCategories() throws -> [WebToolCategory] {
+        let descriptor = FetchDescriptor<WebToolCategory>(
+            predicate: #Predicate { $0.isEnabled == true },
+            sortBy: [SortDescriptor(\.displayOrder)]
+        )
+        return try modelContext.fetch(descriptor)
+    }
+
+    /// Finds a web tool category by keyword (for tool dispatch).
+    func findWebToolCategory(byKeyword keyword: String) throws -> WebToolCategory? {
+        let descriptor = FetchDescriptor<WebToolCategory>(
+            predicate: #Predicate { $0.keyword == keyword && $0.isEnabled == true }
+        )
+        return try modelContext.fetch(descriptor).first
+    }
+
+    /// Creates a new web tool category. Returns the created category.
+    @discardableResult
+    func createWebToolCategory(
+        name: String,
+        keyword: String,
+        extractionHint: String = "",
+        iconName: String = "globe",
+        displayOrder: Int = 0
+    ) throws -> WebToolCategory {
+        // CloudKit: no unique constraint — check for duplicate keyword
+        let existing = FetchDescriptor<WebToolCategory>(
+            predicate: #Predicate { $0.keyword == keyword }
+        )
+        if try modelContext.fetch(existing).first != nil {
+            throw NSError(domain: "SwiftDataService", code: 10,
+                         userInfo: [NSLocalizedDescriptionKey: "A web tool category with keyword '\(keyword)' already exists"])
+        }
+
+        let category = WebToolCategory(
+            name: name,
+            keyword: keyword,
+            extractionHint: extractionHint,
+            iconName: iconName,
+            displayOrder: displayOrder
+        )
+        modelContext.insert(category)
+        try modelContext.save()
+        return category
+    }
+
+    /// Deletes a web tool category and its sources (cascade).
+    func deleteWebToolCategory(_ categoryId: String) throws {
+        let descriptor = FetchDescriptor<WebToolCategory>(
+            predicate: #Predicate { $0.categoryId == categoryId }
+        )
+        if let category = try modelContext.fetch(descriptor).first {
+            modelContext.delete(category)
+            try modelContext.save()
+        }
+    }
+
+    /// Adds a source to a web tool category.
+    @discardableResult
+    func addWebToolSource(
+        toCategoryId categoryId: String,
+        name: String,
+        urlPattern: String,
+        extractionHint: String = "",
+        priority: Int = 1,
+        notes: String = ""
+    ) throws -> WebToolSource? {
+        let descriptor = FetchDescriptor<WebToolCategory>(
+            predicate: #Predicate { $0.categoryId == categoryId }
+        )
+        guard let category = try modelContext.fetch(descriptor).first else {
+            return nil
+        }
+
+        let source = WebToolSource(
+            name: name,
+            urlPattern: urlPattern,
+            extractionHint: extractionHint,
+            priority: priority,
+            notes: notes
+        )
+        source.category = category
+        category.safeSources.append(source)
+        try modelContext.save()
+        return source
+    }
+
+    /// Deletes a web tool source by its sourceId.
+    func deleteWebToolSource(_ sourceId: String) throws {
+        let descriptor = FetchDescriptor<WebToolSource>(
+            predicate: #Predicate { $0.sourceId == sourceId }
+        )
+        if let source = try modelContext.fetch(descriptor).first {
+            modelContext.delete(source)
+            try modelContext.save()
+        }
+    }
+
+    /// Returns enabled sources for a category, sorted by priority (ascending).
+    /// This is the fallback chain order: priority 1 first, then 2, then 3.
+    func loadEnabledSources(forCategoryKeyword keyword: String) throws -> [WebToolSource] {
+        guard let category = try findWebToolCategory(byKeyword: keyword) else {
+            return []
+        }
+        return category.safeSources
+            .filter { $0.isEnabled }
+            .sorted { $0.priority < $1.priority }
+    }
+
+    // MARK: - Web Tools Default Seeding
+
+    /// Seeds default web tool categories and sources on first launch.
+    /// Safe to call multiple times — skips if any categories already exist.
+    func seedDefaultWebTools() throws {
+        let descriptor = FetchDescriptor<WebToolCategory>()
+        let existingCount = try modelContext.fetchCount(descriptor)
+        guard existingCount == 0 else { return }
+
+        // --- Weather category ---
+        let weather = WebToolCategory(
+            name: "Weather",
+            keyword: "weather",
+            extractionHint: "Current conditions, temperature, humidity, wind, and 7-day forecast",
+            iconName: "sun.max",
+            displayOrder: 0
+        )
+        modelContext.insert(weather)
+
+        let nws = WebToolSource(
+            name: "NWS Forecast",
+            urlPattern: "https://forecast.weather.gov/MapClick.php?lat={lat}&lon={lon}",
+            extractionHint: "Current conditions, temperature, humidity, wind, and 7-day forecast from National Weather Service",
+            priority: 1,
+            notes: "National Weather Service — free, no API key, US coverage"
+        )
+        nws.category = weather
+        weather.safeSources.append(nws)
+
+        let wttr = WebToolSource(
+            name: "wttr.in",
+            urlPattern: "https://wttr.in/{city}?format=v2",
+            extractionHint: "Current conditions and forecast in text format",
+            priority: 2,
+            notes: "Global coverage, text-friendly output"
+        )
+        wttr.category = weather
+        weather.safeSources.append(wttr)
+
+        try modelContext.save()
+        print("Seeded default web tools: 1 category, 2 sources")
+    }
+
+    // MARK: - Web Tools CloudKit Deduplication
+
+    /// Merges duplicate WebToolCategory records that can arise from CloudKit sync.
+    /// Keeps the oldest record per keyword, moves sources from duplicates.
+    func deduplicateWebToolCategories() throws {
+        let descriptor = FetchDescriptor<WebToolCategory>()
+        let allCategories = try modelContext.fetch(descriptor)
+
+        var grouped: [String: [WebToolCategory]] = [:]
+        for category in allCategories {
+            grouped[category.keyword, default: []].append(category)
+        }
+
+        for (_, categories) in grouped where categories.count > 1 {
+            let sorted = categories.sorted { $0.createdAt < $1.createdAt }
+            let keeper = sorted[0]
+
+            for duplicate in sorted.dropFirst() {
+                for source in duplicate.safeSources {
+                    source.category = keeper
+                    keeper.safeSources.append(source)
+                }
+                duplicate.sources = []
+                modelContext.delete(duplicate)
+            }
+        }
+
+        try modelContext.save()
+    }
 }

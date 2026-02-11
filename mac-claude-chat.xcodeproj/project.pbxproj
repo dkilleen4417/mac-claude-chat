@@ -6,6 +6,11 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		3A2B38122F3C421300E744D7 /* WebFetchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A2B38112F3C421300E744D7 /* WebFetchService.swift */; };
+		3A2B38142F3C4A9800E744D7 /* WebToolManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A2B38132F3C4A9800E744D7 /* WebToolManagerView.swift */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		3AE4CD632F34683D002EBE7F /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -23,13 +28,33 @@
 		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		3A2B38172F3CB5BD00E744D7 /* CopyFiles */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = /usr/share/man/man1/;
+			dstSubfolderSpec = 0;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 1;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		3A2B38112F3C421300E744D7 /* WebFetchService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebFetchService.swift; sourceTree = "<group>"; };
+		3A2B38132F3C4A9800E744D7 /* WebToolManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebToolManagerView.swift; sourceTree = "<group>"; };
+		3A2B38192F3CB5BD00E744D7 /* Router​Eval */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "Router​Eval"; sourceTree = BUILT_PRODUCTS_DIR; };
 		3AE4CD552F34683C002EBE7F /* mac-claude-chat.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "mac-claude-chat.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		3AE4CD622F34683D002EBE7F /* mac-claude-chatTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "mac-claude-chatTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		3AE4CD6C2F34683D002EBE7F /* mac-claude-chatUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "mac-claude-chatUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		3A2B381A2F3CB5BD00E744D7 /* Router​Eval */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "Router​Eval";
+			sourceTree = "<group>";
+		};
 		3AE4CD572F34683C002EBE7F /* mac-claude-chat */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = "mac-claude-chat";
@@ -48,6 +73,13 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		3A2B38162F3CB5BD00E744D7 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		3AE4CD522F34683C002EBE7F /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -78,8 +110,11 @@
 				3AE4CD572F34683C002EBE7F /* mac-claude-chat */,
 				3AE4CD652F34683D002EBE7F /* mac-claude-chatTests */,
 				3AE4CD6F2F34683D002EBE7F /* mac-claude-chatUITests */,
+				3A2B381A2F3CB5BD00E744D7 /* Router​Eval */,
 				3AE4CD802F34D087002EBE7F /* Frameworks */,
 				3AE4CD562F34683C002EBE7F /* Products */,
+				3A2B38112F3C421300E744D7 /* WebFetchService.swift */,
+				3A2B38132F3C4A9800E744D7 /* WebToolManagerView.swift */,
 			);
 			sourceTree = "<group>";
 		};
@@ -89,6 +124,7 @@
 				3AE4CD552F34683C002EBE7F /* mac-claude-chat.app */,
 				3AE4CD622F34683D002EBE7F /* mac-claude-chatTests.xctest */,
 				3AE4CD6C2F34683D002EBE7F /* mac-claude-chatUITests.xctest */,
+				3A2B38192F3CB5BD00E744D7 /* Router​Eval */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -103,6 +139,28 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		3A2B38182F3CB5BD00E744D7 /* Router​Eval */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 3A2B381D2F3CB5BD00E744D7 /* Build configuration list for PBXNativeTarget "Router​Eval" */;
+			buildPhases = (
+				3A2B38152F3CB5BD00E744D7 /* Sources */,
+				3A2B38162F3CB5BD00E744D7 /* Frameworks */,
+				3A2B38172F3CB5BD00E744D7 /* CopyFiles */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				3A2B381A2F3CB5BD00E744D7 /* Router​Eval */,
+			);
+			name = "Router​Eval";
+			packageProductDependencies = (
+			);
+			productName = "Router​Eval";
+			productReference = 3A2B38192F3CB5BD00E744D7 /* Router​Eval */;
+			productType = "com.apple.product-type.tool";
+		};
 		3AE4CD542F34683C002EBE7F /* mac-claude-chat */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 3AE4CD762F34683D002EBE7F /* Build configuration list for PBXNativeTarget "mac-claude-chat" */;
@@ -181,6 +239,9 @@
 				LastSwiftUpdateCheck = 2630;
 				LastUpgradeCheck = 2630;
 				TargetAttributes = {
+					3A2B38182F3CB5BD00E744D7 = {
+						CreatedOnToolsVersion = 26.3;
+					};
 					3AE4CD542F34683C002EBE7F = {
 						CreatedOnToolsVersion = 26.3;
 					};
@@ -213,6 +274,7 @@
 				3AE4CD542F34683C002EBE7F /* mac-claude-chat */,
 				3AE4CD612F34683D002EBE7F /* mac-claude-chatTests */,
 				3AE4CD6B2F34683D002EBE7F /* mac-claude-chatUITests */,
+				3A2B38182F3CB5BD00E744D7 /* Router​Eval */,
 			);
 		};
 /* End PBXProject section */
@@ -242,10 +304,19 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		3A2B38152F3CB5BD00E744D7 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		3AE4CD512F34683C002EBE7F /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				3A2B38122F3C421300E744D7 /* WebFetchService.swift in Sources */,
+				3A2B38142F3C4A9800E744D7 /* WebToolManagerView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -279,6 +350,34 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		3A2B381E2F3CB5BD00E744D7 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = N4LNUFU7CU;
+				ENABLE_HARDENED_RUNTIME = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		3A2B381F2F3CB5BD00E744D7 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = N4LNUFU7CU;
+				ENABLE_HARDENED_RUNTIME = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 		3AE4CD742F34683D002EBE7F /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -590,6 +689,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		3A2B381D2F3CB5BD00E744D7 /* Build configuration list for PBXNativeTarget "Router​Eval" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3A2B381E2F3CB5BD00E744D7 /* Debug */,
+				3A2B381F2F3CB5BD00E744D7 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		3AE4CD502F34683C002EBE7F /* Build configuration list for PBXProject "mac-claude-chat" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

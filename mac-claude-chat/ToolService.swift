@@ -130,6 +130,31 @@ enum ToolService {
                     "properties": [String: Any](),
                     "required": [String]()
                 ]
+            ],
+
+            // Web Tools: generic web lookup with source fallback chain
+            [
+                "name": "web_lookup",
+                "description": "Look up current information from trusted web sources. Use this for topics where a web source can provide current, reliable information. Specify the category to use a curated source, or use category 'search' for general web search.",
+                "input_schema": [
+                    "type": "object",
+                    "properties": [
+                        "category": [
+                            "type": "string",
+                            "description": "The web tool category (e.g., 'weather', 'news', 'finance'). Use 'search' for general web search when no specific category fits."
+                        ] as [String: Any],
+                        "query": [
+                            "type": "string",
+                            "description": "The user's question or search terms."
+                        ] as [String: Any],
+                        "parameters": [
+                            "type": "object",
+                            "description": "Key-value pairs to fill URL placeholders (e.g., {\"lat\": \"39.27\", \"lon\": \"-76.73\", \"city\": \"Catonsville\"}).",
+                            "additionalProperties": ["type": "string"]
+                        ] as [String: Any]
+                    ],
+                    "required": ["category", "query"]
+                ] as [String: Any]
             ]
         ]
 
@@ -418,5 +443,74 @@ enum ToolService {
         } catch {
             return .plain("Weather error: \(error.localizedDescription)")
         }
+    }
+
+    // MARK: - Web Lookup Tool
+
+    /// Execute a web_lookup tool call using the fallback chain from SwiftData.
+    /// Called from ContentView with the dataService, since ToolService is stateless.
+    ///
+    /// - Parameters:
+    ///   - input: The tool call input dictionary from Claude.
+    ///   - dataService: SwiftDataService instance for querying web tool sources.
+    /// - Returns: A ToolResult with the fetched content or an error message.
+    static func executeWebLookup(input: [String: Any], dataService: SwiftDataService) async -> ToolResult {
+        let category = input["category"] as? String ?? "search"
+        let query = input["query"] as? String ?? ""
+        let parameters = input["parameters"] as? [String: String] ?? [:]
+
+        print("🌐 web_lookup: category=\(category), query=\(query)")
+
+        // If category is "search", fall through to general web search
+        if category == "search" {
+            return .plain(await searchWebFallback(query: query))
+        }
+
+        // Look up sources for this category
+        do {
+            let sources = try dataService.loadEnabledSources(forCategoryKeyword: category)
+
+            if sources.isEmpty {
+                print("🌐 web_lookup: no sources for category '\(category)', falling back to web search")
+                return .plain(await searchWebFallback(query: query))
+            }
+
+            // Build source tuples for the fallback chain
+            let sourceTuples = sources.map { source in
+                (urlPattern: source.urlPattern, extractionHint: source.extractionHint)
+            }
+
+            // Execute the fallback chain
+            let result = await WebFetchService.fetchWithFallback(
+                sources: sourceTuples,
+                parameters: parameters
+            )
+
+            switch result {
+            case .success(let content, let url):
+                return .plain("Source: \(url)\n\n\(content)")
+            case .failure(let reason, _):
+                // All sources failed — fall back to general web search
+                print("🌐 web_lookup: all sources failed (\(reason)), falling back to web search")
+                return .plain(await searchWebFallback(query: query))
+            }
+        } catch {
+            print("🌐 web_lookup: data error: \(error)")
+            return .plain(await searchWebFallback(query: query))
+        }
+    }
+
+    /// Fallback web search when no curated sources are available or all fail.
+    /// Uses Tavily if available, otherwise returns an informative message.
+    private static func searchWebFallback(query: String) async -> String {
+        // Try Tavily first if API key is available
+        if KeychainService.getTavilyKey() != nil {
+            return await searchWeb(query: query)
+        }
+
+        // No search API available — return a helpful message
+        return "No curated web sources matched this query and no web search API key is configured. " +
+               "You can add a Tavily API key in Settings for general web search fallback, " +
+               "or configure a web tool source for this category in the Web Tools manager."
     }
 }

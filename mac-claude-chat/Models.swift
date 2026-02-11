@@ -17,7 +17,7 @@ import SwiftData
 /// Manual version tracking for SwiftData schema changes.
 /// Bump this BEFORE any schema change, deploy to ALL devices first.
 enum AppConfig {
-    static let buildVersion = 6  // Bumped for modelUsed field on ChatMessage
+    static let buildVersion = 7  // Bumped for WebToolCategory + WebToolSource models
 }
 
 // MARK: - SwiftData Persistent Models (CloudKit-Compatible)
@@ -131,6 +131,91 @@ final class ChatMessage {
         self.outputTokens = outputTokens
         self.icebergTip = icebergTip
         self.modelUsed = modelUsed
+    }
+}
+
+// MARK: - Web Tools Models
+
+/// A category of web tool sources (e.g., "Weather", "Finance").
+/// Groups related WebToolSource records under a single intent keyword.
+@Model
+final class WebToolCategory {
+    var categoryId: String = UUID().uuidString
+    var name: String = ""
+    var keyword: String = ""
+    var extractionHint: String = ""
+    var iconName: String = "globe"
+    var isEnabled: Bool = true
+    var displayOrder: Int = 0
+    var createdAt: Date = Date()
+
+    // CloudKit: relationship must be optional
+    @Relationship(deleteRule: .cascade, inverse: \WebToolSource.category)
+    var sources: [WebToolSource]? = []
+
+    init(
+        categoryId: String = UUID().uuidString,
+        name: String = "",
+        keyword: String = "",
+        extractionHint: String = "",
+        iconName: String = "globe",
+        isEnabled: Bool = true,
+        displayOrder: Int = 0,
+        createdAt: Date = Date(),
+        sources: [WebToolSource] = []
+    ) {
+        self.categoryId = categoryId
+        self.name = name
+        self.keyword = keyword
+        self.extractionHint = extractionHint
+        self.iconName = iconName
+        self.isEnabled = isEnabled
+        self.displayOrder = displayOrder
+        self.createdAt = createdAt
+        self.sources = sources
+    }
+
+    /// Safe accessor for sources (unwraps optional for CloudKit compatibility)
+    var safeSources: [WebToolSource] {
+        get { sources ?? [] }
+        set { sources = newValue }
+    }
+}
+
+/// A single web source within a WebToolCategory.
+/// Priority determines fallback order: 1 = primary, 2 = secondary, 3 = tertiary.
+@Model
+final class WebToolSource {
+    var sourceId: String = UUID().uuidString
+    var name: String = ""
+    var urlPattern: String = ""
+    var extractionHint: String = ""
+    var priority: Int = 1
+    var isEnabled: Bool = true
+    var notes: String = ""
+    var createdAt: Date = Date()
+
+    // CloudKit: relationship must be optional
+    var category: WebToolCategory?
+
+    init(
+        sourceId: String = UUID().uuidString,
+        name: String = "",
+        urlPattern: String = "",
+        extractionHint: String = "",
+        priority: Int = 1,
+        isEnabled: Bool = true,
+        notes: String = "",
+        createdAt: Date = Date()
+    ) {
+        self.sourceId = sourceId
+        self.name = name
+        self.urlPattern = urlPattern
+        self.extractionHint = extractionHint
+        self.priority = priority
+        self.isEnabled = isEnabled
+        self.notes = notes
+        self.createdAt = createdAt
     }
 }
 
@@ -248,4 +333,5 @@ extension Notification.Name {
     static let deleteChat = Notification.Name("deleteChat")
     static let showAPIKeySettings = Notification.Name("showAPIKeySettings")
     static let publishChat = Notification.Name("publishChat")
+    static let showWebToolManager = Notification.Name("showWebToolManager")
 }

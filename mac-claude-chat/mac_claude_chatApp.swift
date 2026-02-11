@@ -14,7 +14,7 @@ struct mac_claude_chatApp: App {
         WindowGroup {
             ContentView()
         }
-        .modelContainer(for: [ChatSession.self, ChatMessage.self])
+        .modelContainer(for: [ChatSession.self, ChatMessage.self, WebToolCategory.self, WebToolSource.self])
         #if os(macOS)
         .commands {
             CommandGroup(replacing: .newItem) {
@@ -51,6 +51,10 @@ struct mac_claude_chatApp: App {
                     NotificationCenter.default.post(name: .showAPIKeySettings, object: nil)
                 }
                 .keyboardShortcut(",", modifiers: .command)
+
+                Button("Web Tools\u{2026}") {
+                    NotificationCenter.default.post(name: .showWebToolManager, object: nil)
+                }
             }
         }
         #endif

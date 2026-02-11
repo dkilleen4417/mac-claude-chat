@@ -29,6 +29,7 @@ struct ContentView: View {
     @State private var streamingContent: String = ""
     @State private var selectedModel: ClaudeModel = .turbo  // TODO: Remove after TokenAuditView rework
     @State private var showingAPIKeySetup: Bool = false
+    @State private var showingWebToolManager: Bool = false
     @State private var needsAPIKey: Bool = false
     @State private var toolActivityMessage: String?
     @State private var renamingChatId: String?
@@ -68,9 +69,17 @@ struct ContentView: View {
         - get_datetime: Get current date and time (Eastern timezone)
         - search_web: Search the web for current information (news, sports, events, research)
         - get_weather: Get current weather (defaults to Catonsville, Maryland)
+        - web_lookup: Look up information from curated web sources (see WEB TOOLS below)
         Don't deflect with "I don't have real-time data" — search for it.
         You can call multiple tools in a single response when needed.
         For weather queries with no specific location, default to Drew's location.
+
+        WEB TOOLS:
+        You have access to curated web sources via the web_lookup tool.
+        \(webToolsPromptSection)
+        When a user asks about a topic matching a web tool category, consider using
+        web_lookup with that category. The tool will try curated sources first and
+        fall back to general web search if they fail.
 
         TEMPORAL REFERENCES:
         When the user mentions any relative time ("last Sunday", "this week", \
@@ -179,6 +188,7 @@ struct ContentView: View {
         } detail: {
             chatView
         }
+        .navigationTitle("Drew's Claude Chat")
         .task {
             if claudeService.hasAPIKey {
                 initializeDatabase()
@@ -243,6 +253,9 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .showAPIKeySettings)) { _ in
             showingAPIKeySetup = true
         }
+        .onReceive(NotificationCenter.default.publisher(for: .showWebToolManager)) { _ in
+            showingWebToolManager = true
+        }
         .onReceive(NotificationCenter.default.publisher(for: .publishChat)) { _ in
             if let chatId = selectedChat {
                 publishChat(chatId: chatId)
@@ -252,6 +265,9 @@ struct ContentView: View {
             APIKeySetupView(isPresented: $showingAPIKeySetup) {
                 needsAPIKey = false
             }
+        }
+        .sheet(isPresented: $showingWebToolManager) {
+            WebToolManagerView()
         }
         .sheet(isPresented: $needsAPIKey) {
             APIKeySetupView(isPresented: $needsAPIKey) {
@@ -282,6 +298,27 @@ struct ContentView: View {
         case ..<604800: return "\(Int(seconds / 86400))d ago"
         case ..<2592000: return "\(Int(seconds / 604800))w ago"
         default: return "Long ago"
+        }
+    }
+
+    /// Dynamically generates the web tools section for the system prompt.
+    /// Lists all enabled categories and their keywords for the LLM.
+    private var webToolsPromptSection: String {
+        do {
+            let categories = try dataService.loadEnabledWebToolCategories()
+            if categories.isEmpty {
+                return "No web tool categories are currently configured."
+            }
+            var lines: [String] = ["Available categories:"]
+            for category in categories {
+                let sourceCount = category.safeSources.filter { $0.isEnabled }.count
+                let hint = category.extractionHint.isEmpty ? "" : " — \(category.extractionHint)"
+                lines.append("- \(category.keyword): \(category.name)\(hint) (\(sourceCount) source\(sourceCount == 1 ? "" : "s"))")
+            }
+            return lines.joined(separator: "\n        ")
+        } catch {
+            print("Failed to load web tool categories for prompt: \(error)")
+            return "No web tool categories are currently configured."
         }
     }
 
@@ -711,6 +748,14 @@ struct ContentView: View {
             print("Deduplication check: \(error)")
         }
 
+        // Seed default web tools on first launch and deduplicate across devices
+        do {
+            try dataService.seedDefaultWebTools()
+            try dataService.deduplicateWebToolCategories()
+        } catch {
+            print("Web tools initialization: \(error)")
+        }
+
         // Backfill turnIds for messages created before turn tracking
         do {
             try dataService.backfillTurnIds()
@@ -1047,14 +1092,28 @@ struct ContentView: View {
 
         Task {
             do {
-                // --- Router Classification ---
-                let tips = RouterService.collectTips(from: messages)
-                let classification = await RouterService.classify(
-                    userMessage: trimmedText,
-                    tips: tips,
-                    claudeService: claudeService
-                )
-                let effectiveModel = classification.model
+                // --- Model Selection ---
+                let effectiveModel: ClaudeModel
+                let messageForAPI: String
+
+                if trimmedText.lowercased().hasPrefix("/opus") {
+                    // Manual Opus override — strip prefix, skip router
+                    effectiveModel = .premium
+                    messageForAPI = trimmedText
+                        .dropFirst(5)  // Remove "/opus"
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    print("🤖 Manual override: OPUS")
+                } else {
+                    // Normal two-tier routing (Haiku/Sonnet only)
+                    let tips = RouterService.collectTips(from: messages)
+                    let classification = await RouterService.classify(
+                        userMessage: trimmedText,
+                        tips: tips,
+                        claudeService: claudeService
+                    )
+                    effectiveModel = classification.model
+                    messageForAPI = trimmedText
+                }
 
                 // Build API messages filtered by grade threshold
                 // Grade filtering happens here - messages with textGrade < threshold are excluded
@@ -1079,20 +1138,20 @@ struct ContentView: View {
                 }
 
                 // Add text block if there's text
-                if !trimmedText.isEmpty {
+                if !messageForAPI.isEmpty {
                     currentMessageContent.append([
                         "type": "text",
-                        "text": trimmedText
+                        "text": messageForAPI
                     ])
                 }
 
                 // Add current message to apiMessages
                 if currentMessageContent.isEmpty {
                     // Shouldn't happen due to guard above, but fallback
-                    apiMessages.append(["role": "user", "content": trimmedText])
+                    apiMessages.append(["role": "user", "content": messageForAPI])
                 } else if currentMessageContent.count == 1 && imagesToSend.isEmpty {
                     // Text only - can use simple string format
-                    apiMessages.append(["role": "user", "content": trimmedText])
+                    apiMessages.append(["role": "user", "content": messageForAPI])
                 } else {
                     // Mixed content - use content blocks
                     apiMessages.append(["role": "user", "content": currentMessageContent])
@@ -1153,6 +1212,10 @@ struct ContentView: View {
                             displayName = "🌤️ Getting weather for \(location)"
                         case "get_datetime":
                             displayName = "🕐 Checking date/time"
+                        case "web_lookup":
+                            let category = toolCall.input["category"] as? String ?? "search"
+                            let query = toolCall.input["query"] as? String ?? ""
+                            displayName = "🌐 Looking up \(category): \(query)"
                         default:
                             displayName = "🔧 Using \(toolCall.name)"
                         }
@@ -1160,10 +1223,19 @@ struct ContentView: View {
                             toolActivityMessage = displayName
                         }
 
-                        let toolResult = await ToolService.executeTool(
-                            name: toolCall.name,
-                            input: toolCall.input
-                        )
+                        // web_lookup needs SwiftData access for source resolution
+                        let toolResult: ToolResult
+                        if toolCall.name == "web_lookup" {
+                            toolResult = await ToolService.executeWebLookup(
+                                input: toolCall.input,
+                                dataService: dataService
+                            )
+                        } else {
+                            toolResult = await ToolService.executeTool(
+                                name: toolCall.name,
+                                input: toolCall.input
+                            )
+                        }
                         // Send plain text to Claude
                         toolResults.append([
                             "type": "tool_result",
