@@ -27,7 +27,7 @@ struct ContentView: View {
     @State private var newChatName: String = ""
     @State private var streamingMessageId: UUID?
     @State private var streamingContent: String = ""
-    @State private var selectedModel: ClaudeModel = .turbo
+    @State private var selectedModel: ClaudeModel = .turbo  // TODO: Remove after TokenAuditView rework
     @State private var showingAPIKeySetup: Bool = false
     @State private var needsAPIKey: Bool = false
     @State private var toolActivityMessage: String?
@@ -71,6 +71,23 @@ struct ContentView: View {
         Don't deflect with "I don't have real-time data" — search for it.
         You can call multiple tools in a single response when needed.
         For weather queries with no specific location, default to Drew's location.
+
+        TEMPORAL REFERENCES:
+        When the user mentions any relative time ("last Sunday", "this week", \
+        "yesterday", "recently", "the latest"), ALWAYS call get_datetime first \
+        to anchor your reasoning to the actual current date before proceeding.
+        Never assume you know today's date — always verify with the tool.
+
+        ICEBERG TIP:
+        At the very end of every response, append a one-line summary of this exchange \
+        wrapped in an HTML comment marker. This summary captures the essence of what \
+        was discussed or accomplished in this turn — it will be used for conversation \
+        context in future turns. Format:
+        <!--tip:Brief summary of what was discussed or accomplished-->
+        Keep tips under 20 words. Examples:
+        <!--tip:Greeted user, casual check-in-->
+        <!--tip:Explained SwiftData CloudKit constraints and migration strategy-->
+        <!--tip:Provided weather for Catonsville, clear skies 44°F-->
         """
     }
 
@@ -223,11 +240,6 @@ struct ContentView: View {
                 deleteChat(chat)
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .selectModel)) { notification in
-            if let model = notification.object as? ClaudeModel {
-                selectedModel = model
-            }
-        }
         .onReceive(NotificationCenter.default.publisher(for: .showAPIKeySettings)) { _ in
             showingAPIKeySetup = true
         }
@@ -318,10 +330,15 @@ struct ContentView: View {
         }
     }
 
+    /// Calculate total session cost by summing actual per-message costs
     private func calculateCost() -> String {
-        let inputCost = Double(totalInputTokens) / 1_000_000.0 * selectedModel.inputCostPerMillion
-        let outputCost = Double(totalOutputTokens) / 1_000_000.0 * selectedModel.outputCostPerMillion
-        let totalCost = inputCost + outputCost
+        var totalCost = 0.0
+        for message in messages where message.role == .assistant && !message.modelUsed.isEmpty {
+            if let model = ClaudeModel(rawValue: message.modelUsed) {
+                totalCost += Double(message.inputTokens) / 1_000_000.0 * model.inputCostPerMillion
+                totalCost += Double(message.outputTokens) / 1_000_000.0 * model.outputCostPerMillion
+            }
+        }
         return String(format: "%.4f", totalCost)
     }
 
@@ -334,10 +351,6 @@ struct ContentView: View {
                 Image(systemName: "bubble.left.and.bubble.right.fill")
                     .font(.title2)
                     .foregroundStyle(.blue)
-
-                Text("\(selectedModel.emoji) \(selectedModel.displayName)")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
 
                 Spacer()
 
@@ -493,33 +506,6 @@ struct ContentView: View {
 
             VStack(spacing: 4) {
                 HStack {
-                    Menu {
-                        ForEach(ClaudeModel.allCases) { model in
-                            Button {
-                                selectedModel = model
-                            } label: {
-                                HStack {
-                                    Text("\(model.emoji) \(model.displayName)")
-                                    if selectedModel == model {
-                                        Image(systemName: "checkmark")
-                                    }
-                                }
-                            }
-                        }
-                    } label: {
-                        Text("\(selectedModel.emoji) \(selectedModel.displayName)")
-                            .font(.caption)
-                            .foregroundStyle(.blue)
-                    }
-                    #if os(macOS)
-                    .menuStyle(.borderlessButton)
-                    #endif
-                    .fixedSize()
-
-                    Text("•")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
                     Button {
                         showingTokenAudit = true
                     } label: {
@@ -1061,6 +1047,15 @@ struct ContentView: View {
 
         Task {
             do {
+                // --- Router Classification ---
+                let tips = RouterService.collectTips(from: messages)
+                let classification = await RouterService.classify(
+                    userMessage: trimmedText,
+                    tips: tips,
+                    claudeService: claudeService
+                )
+                let effectiveModel = classification.model
+
                 // Build API messages filtered by grade threshold
                 // Grade filtering happens here - messages with textGrade < threshold are excluded
                 let filteredMessages = await getFilteredMessagesForAPI(threshold: sendThreshold, excludingLast: true)
@@ -1116,7 +1111,7 @@ struct ContentView: View {
 
                     let result = try await claudeService.streamMessageWithTools(
                         messages: apiMessages,
-                        model: selectedModel,
+                        model: effectiveModel,
                         systemPrompt: systemPrompt,
                         tools: tools,
                         onTextChunk: { chunk in
@@ -1195,22 +1190,32 @@ struct ContentView: View {
                 totalInputTokens += totalStreamInputTokens
                 totalOutputTokens += totalStreamOutputTokens
 
+                // Extract iceberg tip from response before saving
+                let (cleanedResponse, extractedTip) = RouterService.extractTip(from: fullResponse)
+
                 // Prepend any collected markers to the saved message content
                 let markerPrefix = collectedMarkers.isEmpty ? "" : collectedMarkers.joined(separator: "\n") + "\n"
                 let assistantMessage = Message(
                     id: assistantMessageId,
                     role: .assistant,
-                    content: markerPrefix + fullResponse,
+                    content: markerPrefix + cleanedResponse,
                     timestamp: Date(),
                     turnId: turnId,
                     isFinalResponse: true,  // This is the final response for this turn
                     inputTokens: totalStreamInputTokens,
-                    outputTokens: totalStreamOutputTokens
+                    outputTokens: totalStreamOutputTokens,
+                    icebergTip: extractedTip ?? "",
+                    modelUsed: effectiveModel.rawValue
                 )
 
                 messages.append(assistantMessage)
                 streamingMessageId = nil
                 streamingContent = ""
+
+                // Log the iceberg tip if generated
+                if let tip = extractedTip {
+                    print("🏔️ Tip: \(tip)")
+                }
                 toolActivityMessage = nil
                 isLoading = false
 
@@ -1413,6 +1418,12 @@ struct ContentView: View {
 
         // Strip image markers
         if let regex = try? NSRegularExpression(pattern: "<!--image:\\{.+?\\}-->\\n?", options: []) {
+            let range = NSRange(result.startIndex..., in: result)
+            result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: "")
+        }
+
+        // Strip iceberg tip markers
+        if let regex = try? NSRegularExpression(pattern: "<!--tip:.+?-->\\n?", options: [.dotMatchesLineSeparators]) {
             let range = NSRange(result.startIndex..., in: result)
             result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: "")
         }

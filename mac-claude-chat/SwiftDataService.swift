@@ -37,7 +37,9 @@ class SwiftDataService {
             turnId: turnId,
             isFinalResponse: isFinalResponse,
             inputTokens: inputTokens,
-            outputTokens: outputTokens
+            outputTokens: outputTokens,
+            icebergTip: message.icebergTip,
+            modelUsed: message.modelUsed
         )
         chatMessage.session = session
         session.safeMessages.append(chatMessage)
@@ -68,7 +70,9 @@ class SwiftDataService {
                     turnId: chatMessage.turnId,
                     isFinalResponse: chatMessage.isFinalResponse,
                     inputTokens: chatMessage.inputTokens,
-                    outputTokens: chatMessage.outputTokens
+                    outputTokens: chatMessage.outputTokens,
+                    icebergTip: chatMessage.icebergTip,
+                    modelUsed: chatMessage.modelUsed
                 )
             }
     }
@@ -241,7 +245,9 @@ class SwiftDataService {
                         turnId: chatMessage.turnId,
                         isFinalResponse: chatMessage.isFinalResponse,
                         inputTokens: chatMessage.inputTokens,
-                        outputTokens: chatMessage.outputTokens
+                        outputTokens: chatMessage.outputTokens,
+                        icebergTip: chatMessage.icebergTip,
+                        modelUsed: chatMessage.modelUsed
                     ),
                     textGrade: chatMessage.textGrade,
                     imageGrade: chatMessage.imageGrade,

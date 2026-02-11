@@ -91,7 +91,47 @@ struct MessageBubble: View {
             }
 
             if message.role == .assistant {
-                MarkdownMessageView(content: message.content)
+                VStack(alignment: .leading, spacing: 4) {
+                    // Iceberg tip as response header
+                    if message.role == .assistant && !message.icebergTip.isEmpty {
+                        Text("🏔️ \(message.icebergTip)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .italic()
+                            .padding(.bottom, 4)
+                    }
+
+                    MarkdownMessageView(content: message.content)
+
+                    // Metadata footer: model, tokens, cost
+                    if message.role == .assistant && message.isFinalResponse {
+                        HStack(spacing: 4) {
+                            if let model = ClaudeModel(rawValue: message.modelUsed) {
+                                Text("\(model.emoji) \(model.displayName)")
+                            } else if !message.modelUsed.isEmpty {
+                                Text(message.modelUsed)
+                            }
+
+                            if message.inputTokens > 0 || message.outputTokens > 0 {
+                                if !message.modelUsed.isEmpty {
+                                    Text("•")
+                                }
+                                let totalTokens = message.inputTokens + message.outputTokens
+                                Text("\(totalTokens) tokens")
+
+                                if let model = ClaudeModel(rawValue: message.modelUsed) {
+                                    Text("•")
+                                    let inputCost = Double(message.inputTokens) / 1_000_000.0 * model.inputCostPerMillion
+                                    let outputCost = Double(message.outputTokens) / 1_000_000.0 * model.outputCostPerMillion
+                                    Text(String(format: "$%.4f", inputCost + outputCost))
+                                }
+                            }
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 4)
+                    }
+                }
             } else {
                 // User message with potential images
                 UserMessageContent(

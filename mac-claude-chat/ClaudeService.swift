@@ -339,4 +339,57 @@ class ClaudeService {
             outputTokens: outputTokens
         )
     }
+
+    /// Non-streaming single-shot call for router classification and subagent work.
+    /// Returns the raw text content from Claude's response.
+    func singleShot(
+        messages: [[String: Any]],
+        model: ClaudeModel,
+        systemPrompt: String,
+        maxTokens: Int = 256
+    ) async throws -> (text: String, inputTokens: Int, outputTokens: Int) {
+        guard let apiKey = apiKey else {
+            throw NSError(domain: "ClaudeAPI", code: -1,
+                          userInfo: [NSLocalizedDescriptionKey: "No API key configured."])
+        }
+
+        let body: [String: Any] = [
+            "model": model.rawValue,
+            "max_tokens": maxTokens,
+            "system": systemPrompt,
+            "messages": messages
+        ]
+
+        let jsonData = try JSONSerialization.data(withJSONObject: body)
+
+        var request = URLRequest(url: URL(string: endpoint)!)
+        request.httpMethod = "POST"
+        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        request.setValue(apiVersion, forHTTPHeaderField: "anthropic-version")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = jsonData
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200...299).contains(httpResponse.statusCode) else {
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+            throw NSError(domain: "ClaudeAPI", code: statusCode,
+                          userInfo: [NSLocalizedDescriptionKey: "HTTP \(statusCode)"])
+        }
+
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let content = json["content"] as? [[String: Any]],
+              let firstBlock = content.first,
+              let text = firstBlock["text"] as? String else {
+            throw NSError(domain: "ClaudeAPI", code: -2,
+                          userInfo: [NSLocalizedDescriptionKey: "Failed to parse response"])
+        }
+
+        let usage = json["usage"] as? [String: Any]
+        let inputTokens = usage?["input_tokens"] as? Int ?? 0
+        let outputTokens = usage?["output_tokens"] as? Int ?? 0
+
+        return (text: text, inputTokens: inputTokens, outputTokens: outputTokens)
+    }
 }

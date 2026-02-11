@@ -1,0 +1,1 @@
+You are a research scout. Look up the current syntax for tool_choice in the Anthropic Messages API. Return ONLY the parameter name, the valid values it accepts, and what each option does. Keep it under 10 lines.

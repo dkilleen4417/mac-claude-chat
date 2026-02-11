@@ -45,25 +45,7 @@ struct mac_claude_chatApp: App {
                 .keyboardShortcut("e", modifiers: .command)
             }
             
-            CommandMenu("View") {
-                Menu("Model") {
-                    Button("💨 Haiku 4.5") {
-                        NotificationCenter.default.post(name: .selectModel, object: ClaudeModel.turbo)
-                    }
-                    .keyboardShortcut("1", modifiers: .command)
-                    
-                    Button("⚡ Sonnet 4") {
-                        NotificationCenter.default.post(name: .selectModel, object: ClaudeModel.fast)
-                    }
-                    .keyboardShortcut("2", modifiers: .command)
-                    
-                    Button("🚀 Opus 4.6") {
-                        NotificationCenter.default.post(name: .selectModel, object: ClaudeModel.premium)
-                    }
-                    .keyboardShortcut("3", modifiers: .command)
-                }
-            }
-            
+
             CommandGroup(after: .appSettings) {
                 Button("API Key Settings...") {
                     NotificationCenter.default.post(name: .showAPIKeySettings, object: nil)
