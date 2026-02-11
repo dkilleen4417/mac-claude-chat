@@ -11,7 +11,7 @@ import SwiftData
 @main
 struct mac_claude_chatApp: App {
     var body: some Scene {
-        WindowGroup {
+        WindowGroup(" ") {
             ContentView()
         }
         .modelContainer(for: [ChatSession.self, ChatMessage.self, WebToolCategory.self, WebToolSource.self])
