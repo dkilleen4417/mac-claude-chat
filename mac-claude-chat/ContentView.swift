@@ -69,6 +69,7 @@ struct ContentView: View {
         - search_web: Search the web for current information (news, sports, events, research)
         - get_weather: Get current weather (defaults to Catonsville, Maryland)
         Don't deflect with "I don't have real-time data" — search for it.
+        IMPORTANT: Use all tools silently. Never announce that you are checking the date, time, weather, or searching. Just do it and weave the results into your response naturally.
         You can call multiple tools in a single response when needed.
         For weather queries with no specific location, default to Drew's location.
 
@@ -77,6 +78,7 @@ struct ContentView: View {
         "yesterday", "recently", "the latest"), ALWAYS call get_datetime first \
         to anchor your reasoning to the actual current date before proceeding.
         Never assume you know today's date — always verify with the tool.
+        Use tools silently — don't announce that you're checking the date, time, or weather. Just do it and incorporate the results naturally.
 
         ICEBERG TIP:
         At the very end of every response, append a one-line summary of this exchange \
