@@ -38,7 +38,9 @@ struct ContentView: View {
         }
         .onChange(of: viewModel.selectedChat) { oldValue, newValue in
             if let chatId = newValue {
-                viewModel.loadChat(chatId: chatId)
+                Task { @MainActor in
+                    viewModel.loadChat(chatId: chatId)
+                }
             }
         }
         .alert("New Chat", isPresented: $viewModel.showingNewChatDialog) {
@@ -254,9 +256,11 @@ struct ContentView: View {
                                                 return userMsg.textGrade
                                             }
                                         }
+                                        let currentMessages = viewModel.messages
+                                        guard index < currentMessages.count else { return message.textGrade }
                                         for i in stride(from: index - 1, through: 0, by: -1) {
-                                            if viewModel.messages[i].role == .user {
-                                                return viewModel.messages[i].textGrade
+                                            if currentMessages[i].role == .user {
+                                                return currentMessages[i].textGrade
                                             }
                                         }
                                         return message.textGrade

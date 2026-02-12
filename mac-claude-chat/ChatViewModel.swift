@@ -46,6 +46,7 @@ class ChatViewModel {
     var showingImagePicker: Bool = false
     var contextThreshold: Int = 0
     var showingTokenAudit: Bool = false
+    var isClearing: Bool = false
 
     // MARK: - Services
 
@@ -247,16 +248,55 @@ class ChatViewModel {
 
     func deleteChat(_ chat: ChatInfo) {
         guard !chat.isDefault else { return }
+        guard !isClearing else { return }
 
-        do {
-            try dataService.deleteChat(chat.id)
-            loadAllChats()
+        let chatId = chat.id
+        isClearing = true
 
-            if selectedChat == chat.id {
-                selectedChat = "Scratch Pad"
+        // Step 1: Update UI immediately (optimistic)
+        chats.removeAll { $0.id == chatId }
+        if selectedChat == chatId {
+            selectedChat = "Scratch Pad"
+        }
+
+        // Step 2: Delete on background context
+        let container = dataService.modelContainer
+        Task.detached { [weak self] in
+            let backgroundContext = ModelContext(container)
+            backgroundContext.autosaveEnabled = false
+
+            do {
+                let sessionDescriptor = FetchDescriptor<ChatSession>(
+                    predicate: #Predicate { $0.chatId == chatId }
+                )
+                guard let session = try backgroundContext.fetch(sessionDescriptor).first else {
+                    await MainActor.run { [weak self] in self?.isClearing = false }
+                    return
+                }
+
+                // Delete messages explicitly first (avoid cascade on main context)
+                let messagesToDelete = Array(session.safeMessages)
+                session.messages = []
+                try backgroundContext.save()
+
+                for message in messagesToDelete {
+                    backgroundContext.delete(message)
+                }
+
+                // Now delete the empty session
+                backgroundContext.delete(session)
+                try backgroundContext.save()
+
+                print("✅ Background delete completed: \(chatId) (\(messagesToDelete.count) messages)")
+            } catch {
+                print("❌ Background delete failed: \(error)")
+                // Reload chats from DB to restore accurate sidebar
+                await MainActor.run { [weak self] in
+                    self?.loadAllChats()
+                }
             }
-        } catch {
-            errorMessage = "Failed to delete chat: \(error.localizedDescription)"
+
+            await MainActor.run { [weak self] in self?.isClearing = false }
         }
     }
 
@@ -281,9 +321,18 @@ class ChatViewModel {
     }
 
     func loadChat(chatId: String) {
+        print("🔍 loadChat called: \(chatId), isClearing=\(isClearing)")
+        guard !isClearing else {
+            print("⚠️ loadChat skipped — isClearing is true")
+            return
+        }
+
         do {
+            print("🔍 About to loadMessages for: \(chatId)")
             let loadedMessages = try dataService.loadMessages(forChat: chatId)
+            print("🔍 Loaded \(loadedMessages.count) messages, \(loadedMessages.reduce(0) { $0 + $1.content.count }) chars total")
             messages = loadedMessages
+            print("🔍 messages assigned to state")
 
             if let metadata = try dataService.loadMetadata(forChat: chatId) {
                 totalInputTokens = metadata.totalInputTokens
@@ -295,9 +344,10 @@ class ChatViewModel {
 
             contextThreshold = dataService.getContextThreshold(forChat: chatId)
             errorMessage = nil
+            print("🔍 loadChat completed successfully for: \(chatId)")
         } catch {
             errorMessage = "Failed to load chat: \(error.localizedDescription)"
-            print("Load Error: \(error)")
+            print("❌ Load Error: \(error)")
         }
     }
 
@@ -483,16 +533,63 @@ class ChatViewModel {
 
     func clearCurrentChat() {
         guard let chatId = selectedChat else { return }
+        guard !isClearing else { return }  // Prevent re-entrance
 
-        do {
-            try dataService.clearMessages(forChat: chatId)
-            messages = []
-            totalInputTokens = 0
-            totalOutputTokens = 0
-            loadAllChats()
-            errorMessage = nil
-        } catch {
-            errorMessage = "Failed to clear chat: \(error.localizedDescription)"
+        isClearing = true
+
+        // Step 1: Set in-memory state to empty FIRST.
+        // SwiftUI will render an empty chat on its next pass.
+        messages = []
+        totalInputTokens = 0
+        totalOutputTokens = 0
+        errorMessage = nil
+
+        // Update the sidebar entry in-place (no DB read)
+        if let index = chats.firstIndex(where: { $0.id == chatId }) {
+            chats[index] = ChatInfo(
+                id: chatId,
+                name: chatId,
+                lastUpdated: Date(),
+                isDefault: chats[index].isDefault
+            )
+        }
+
+        // Step 2: Delete SwiftData objects on a background context.
+        // Explicit per-message deletion avoids cascade merge overhead.
+        let container = dataService.modelContainer
+        Task.detached { [weak self] in
+            let backgroundContext = ModelContext(container)
+            backgroundContext.autosaveEnabled = false
+
+            do {
+                let descriptor = FetchDescriptor<ChatSession>(
+                    predicate: #Predicate { $0.chatId == chatId }
+                )
+                guard let session = try backgroundContext.fetch(descriptor).first else {
+                    await MainActor.run { self?.isClearing = false }
+                    return
+                }
+
+                // Sever relationship first — lightweight merge when saved
+                let orphanedMessages = Array(session.safeMessages)
+                session.messages = []
+                session.totalInputTokens = 0
+                session.totalOutputTokens = 0
+                session.lastUpdated = Date()
+                try backgroundContext.save()
+
+                // Delete orphaned messages in a second pass
+                for message in orphanedMessages {
+                    backgroundContext.delete(message)
+                }
+                try backgroundContext.save()
+
+                print("✅ Background clear completed: \(orphanedMessages.count) messages deleted")
+            } catch {
+                print("❌ Background clear failed: \(error)")
+            }
+
+            await MainActor.run { self?.isClearing = false }
         }
     }
 
