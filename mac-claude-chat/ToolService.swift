@@ -111,6 +111,8 @@ struct StreamResult {
     let stopReason: String
     let inputTokens: Int
     let outputTokens: Int
+    let cacheCreationTokens: Int
+    let cacheReadTokens: Int
 }
 
 /// Service for defining, dispatching, and executing Claude API tools

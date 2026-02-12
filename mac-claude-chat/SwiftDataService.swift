@@ -72,7 +72,8 @@ class SwiftDataService {
                     inputTokens: chatMessage.inputTokens,
                     outputTokens: chatMessage.outputTokens,
                     icebergTip: chatMessage.icebergTip,
-                    modelUsed: chatMessage.modelUsed
+                    modelUsed: chatMessage.modelUsed,
+                    isEdited: chatMessage.isEdited
                 )
             }
     }
@@ -247,7 +248,8 @@ class SwiftDataService {
                         inputTokens: chatMessage.inputTokens,
                         outputTokens: chatMessage.outputTokens,
                         icebergTip: chatMessage.icebergTip,
-                        modelUsed: chatMessage.modelUsed
+                        modelUsed: chatMessage.modelUsed,
+                        isEdited: chatMessage.isEdited
                     ),
                     textGrade: chatMessage.textGrade,
                     imageGrade: chatMessage.imageGrade,
@@ -268,6 +270,33 @@ class SwiftDataService {
         }
         
         message.textGrade = max(0, min(5, grade))  // Clamp to 0-5
+        try modelContext.save()
+    }
+    
+    /// Updates the text content of a user message (for inline editing).
+    /// Only user messages are editable. Sets isEdited flag and updates session timestamp.
+    func updateMessageContent(messageId: String, newContent: String) throws {
+        let descriptor = FetchDescriptor<ChatMessage>(
+            predicate: #Predicate { $0.messageId == messageId }
+        )
+        
+        guard let message = try modelContext.fetch(descriptor).first else {
+            return
+        }
+        
+        // Only user messages are editable
+        guard message.role == "user" else {
+            return
+        }
+        
+        message.content = newContent
+        message.isEdited = true
+        
+        // Update parent session timestamp
+        if let session = message.session {
+            session.lastUpdated = Date()
+        }
+        
         try modelContext.save()
     }
     

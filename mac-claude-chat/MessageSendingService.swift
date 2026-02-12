@@ -95,6 +95,31 @@ enum MessageSendingService {
             ContextFilteringService.buildAPIMessage(from: msg)
         }
 
+        // --- Apply cache breakpoint to last history message ---
+        if !apiMessages.isEmpty {
+            let lastIndex = apiMessages.count - 1
+            var lastMessage = apiMessages[lastIndex]
+
+            if let contentString = lastMessage["content"] as? String {
+                // Convert plain string content to array format with cache_control
+                lastMessage["content"] = [
+                    [
+                        "type": "text",
+                        "text": contentString,
+                        "cache_control": ["type": "ephemeral"]
+                    ] as [String: Any]
+                ]
+            } else if var contentArray = lastMessage["content"] as? [[String: Any]], !contentArray.isEmpty {
+                // Content is already an array — add cache_control to the last block
+                var lastBlock = contentArray[contentArray.count - 1]
+                lastBlock["cache_control"] = ["type": "ephemeral"]
+                contentArray[contentArray.count - 1] = lastBlock
+                lastMessage["content"] = contentArray
+            }
+
+            apiMessages[lastIndex] = lastMessage
+        }
+
         // --- Build current user message with image handling ---
         var currentMessageContent: [[String: Any]] = []
 
@@ -151,6 +176,10 @@ enum MessageSendingService {
 
             totalStreamInputTokens += result.inputTokens
             totalStreamOutputTokens += result.outputTokens
+
+            if result.cacheReadTokens > 0 || result.cacheCreationTokens > 0 {
+                print("[CACHE] 💾 \(result.cacheReadTokens) read, \(result.cacheCreationTokens) written")
+            }
 
             if result.stopReason == "end_turn" || result.toolCalls.isEmpty {
                 break

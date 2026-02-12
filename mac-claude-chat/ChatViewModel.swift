@@ -336,6 +336,71 @@ class ChatViewModel {
         }
     }
 
+    // MARK: - Message Editing
+
+    func editMessage(messageId: UUID, newText: String) {
+        // Find the message in memory
+        guard let index = messages.firstIndex(where: { $0.id == messageId }) else {
+            return
+        }
+        
+        let message = messages[index]
+        
+        // Only user messages are editable
+        guard message.role == .user else { return }
+        
+        // Don't save empty edits
+        let trimmed = newText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        
+        // Preserve existing image markers, replace only the text portion
+        let (images, _) = MessageContentParser.extractImagesAndCleanText(from: message.content)
+        var imageMarkers: [String] = []
+        for image in images {
+            let markerJson: [String: String] = [
+                "id": image.id,
+                "media_type": image.mediaType,
+                "data": image.base64Data
+            ]
+            if let jsonData = try? JSONSerialization.data(withJSONObject: markerJson),
+               let jsonString = String(data: jsonData, encoding: .utf8) {
+                imageMarkers.append("<!--image:\(jsonString)-->")
+            }
+        }
+        
+        let markerPrefix = imageMarkers.isEmpty ? "" : imageMarkers.joined(separator: "\n") + "\n"
+        let fullContent = markerPrefix + trimmed
+        
+        // Persist
+        do {
+            try dataService.updateMessageContent(
+                messageId: messageId.uuidString,
+                newContent: fullContent
+            )
+            
+            // Update in-memory
+            messages[index] = Message(
+                id: message.id,
+                role: message.role,
+                content: fullContent,
+                timestamp: message.timestamp,
+                textGrade: message.textGrade,
+                imageGrade: message.imageGrade,
+                turnId: message.turnId,
+                isFinalResponse: message.isFinalResponse,
+                inputTokens: message.inputTokens,
+                outputTokens: message.outputTokens,
+                icebergTip: message.icebergTip,
+                modelUsed: message.modelUsed,
+                isEdited: true
+            )
+            
+            loadAllChats()  // Refresh sidebar timestamps
+        } catch {
+            errorMessage = "Failed to edit message: \(error.localizedDescription)"
+        }
+    }
+
     // MARK: - Clipboard
 
     func copyTurn(for message: Message) {
