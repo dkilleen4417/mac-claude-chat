@@ -272,7 +272,10 @@ struct ContentView: View {
                                     },
                                     onCopyTurn: {
                                         viewModel.copyTurn(for: message)
-                                    }
+                                    },
+                                    onEditMessage: message.role == .user ? { newText in
+                                        viewModel.editMessage(messageId: message.id, newText: newText)
+                                    } : nil
                                 )
                                 .id(message.id)
                             }

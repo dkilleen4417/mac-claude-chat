@@ -20,9 +20,12 @@ struct MessageBubble: View {
     let threshold: Int
     let onGradeChange: (Int) -> Void
     let onCopyTurn: () -> Void
+    let onEditMessage: ((String) -> Void)?
 
     @State private var expandedImageId: String?
     @State private var isHovered = false
+    @State private var isEditing: Bool = false
+    @State private var editText: String = ""
 
     /// Computed opacity based on turn grade vs threshold
     /// Both user and assistant messages in a turn dim together
@@ -109,11 +112,64 @@ struct MessageBubble: View {
                 }
             } else {
                 // User message with potential images
-                UserMessageContent(
-                    images: parsedImages,
-                    text: cleanedContent,
-                    expandedImageId: $expandedImageId
-                )
+                if isEditing {
+                    VStack(alignment: .trailing, spacing: 6) {
+                        TextEditor(text: $editText)
+                            .font(.body)
+                            .scrollContentBackground(.hidden)
+                            .padding(8)
+                            .frame(minHeight: 60, maxHeight: 200)
+                            .background(Color.gray.opacity(0.1))
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(Color.blue.opacity(0.5), lineWidth: 1)
+                            )
+
+                        HStack(spacing: 8) {
+                            if message.isEdited {
+                                Text("edited")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .italic()
+                            }
+                            Spacer()
+                            Button("Cancel") {
+                                isEditing = false
+                                editText = ""
+                            }
+                            .buttonStyle(.plain)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                            Button("Save") {
+                                let trimmed = editText.trimmingCharacters(in: .whitespacesAndNewlines)
+                                if !trimmed.isEmpty {
+                                    onEditMessage?(trimmed)
+                                }
+                                isEditing = false
+                                editText = ""
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
+                            .disabled(editText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        }
+                    }
+                } else {
+                    VStack(alignment: .trailing, spacing: 2) {
+                        UserMessageContent(
+                            images: parsedImages,
+                            text: cleanedContent,
+                            expandedImageId: $expandedImageId
+                        )
+                        if message.isEdited {
+                            Text("edited")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .italic()
+                        }
+                    }
+                }
             }
 
             if message.role == .user {
@@ -145,6 +201,20 @@ struct MessageBubble: View {
 
             Button("Copy Turn") {
                 onCopyTurn()
+            }
+
+            if message.role == .user && onEditMessage != nil {
+                Divider()
+                Button("Edit Message") {
+                    editText = cleanedContent
+                    isEditing = true
+                }
+            }
+        }
+        .onTapGesture(count: 2) {
+            if message.role == .user && onEditMessage != nil {
+                editText = cleanedContent
+                isEditing = true
             }
         }
     }

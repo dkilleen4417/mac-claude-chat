@@ -209,7 +209,13 @@ class ClaudeService {
         var body: [String: Any] = [
             "model": model.rawValue,
             "max_tokens": 8192,
-            "system": systemPrompt,
+            "system": [
+                [
+                    "type": "text",
+                    "text": systemPrompt,
+                    "cache_control": ["type": "ephemeral"]
+                ]
+            ],
             "messages": messages,
             "stream": true
         ]
@@ -224,6 +230,7 @@ class ClaudeService {
         request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
         request.setValue(apiVersion, forHTTPHeaderField: "anthropic-version")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("prompt-caching-2024-07-31", forHTTPHeaderField: "anthropic-beta")
         request.httpBody = jsonData
 
         let (bytes, response) = try await URLSession.shared.bytes(for: request)
@@ -243,6 +250,8 @@ class ClaudeService {
 
         var inputTokens = 0
         var outputTokens = 0
+        var cacheCreationTokens = 0
+        var cacheReadTokens = 0
         var textContent = ""
         var toolCalls: [ToolCall] = []
         var stopReason = "end_turn"
@@ -267,6 +276,8 @@ class ClaudeService {
                    let usage = message["usage"] as? [String: Any],
                    let input = usage["input_tokens"] as? Int {
                     inputTokens = input
+                    cacheCreationTokens = usage["cache_creation_input_tokens"] as? Int ?? 0
+                    cacheReadTokens = usage["cache_read_input_tokens"] as? Int ?? 0
                 }
 
             case "content_block_start":
@@ -336,7 +347,9 @@ class ClaudeService {
             toolCalls: toolCalls,
             stopReason: stopReason,
             inputTokens: inputTokens,
-            outputTokens: outputTokens
+            outputTokens: outputTokens,
+            cacheCreationTokens: cacheCreationTokens,
+            cacheReadTokens: cacheReadTokens
         )
     }
 

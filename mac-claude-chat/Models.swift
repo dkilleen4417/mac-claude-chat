@@ -17,7 +17,7 @@ import SwiftData
 /// Manual version tracking for SwiftData schema changes.
 /// Bump this BEFORE any schema change, deploy to ALL devices first.
 enum AppConfig {
-    static let buildVersion = 7  // Bumped for WebToolCategory + WebToolSource models
+    static let buildVersion = 8  // Bumped for ChatMessage.isEdited field
 }
 
 // MARK: - SwiftData Persistent Models (CloudKit-Compatible)
@@ -102,6 +102,9 @@ final class ChatMessage {
     /// Empty string for user messages and legacy messages
     var modelUsed: String = ""
     
+    /// Whether this message has been edited after initial creation
+    var isEdited: Bool = false
+    
     // CloudKit: already optional — good
     var session: ChatSession?
     
@@ -117,7 +120,8 @@ final class ChatMessage {
         inputTokens: Int = 0,
         outputTokens: Int = 0,
         icebergTip: String = "",
-        modelUsed: String = ""
+        modelUsed: String = "",
+        isEdited: Bool = false
     ) {
         self.messageId = messageId
         self.role = role
@@ -131,6 +135,7 @@ final class ChatMessage {
         self.outputTokens = outputTokens
         self.icebergTip = icebergTip
         self.modelUsed = modelUsed
+        self.isEdited = isEdited
     }
 }
 
@@ -234,8 +239,9 @@ struct Message: Identifiable {
     var outputTokens: Int
     var icebergTip: String
     var modelUsed: String
+    var isEdited: Bool
     
-    init(id: UUID = UUID(), role: Role, content: String, timestamp: Date = Date(), textGrade: Int = 5, imageGrade: Int = 5, turnId: String = "", isFinalResponse: Bool = true, inputTokens: Int = 0, outputTokens: Int = 0, icebergTip: String = "", modelUsed: String = "") {
+    init(id: UUID = UUID(), role: Role, content: String, timestamp: Date = Date(), textGrade: Int = 5, imageGrade: Int = 5, turnId: String = "", isFinalResponse: Bool = true, inputTokens: Int = 0, outputTokens: Int = 0, icebergTip: String = "", modelUsed: String = "", isEdited: Bool = false) {
         self.id = id
         self.role = role
         self.content = content
@@ -248,6 +254,7 @@ struct Message: Identifiable {
         self.outputTokens = outputTokens
         self.icebergTip = icebergTip
         self.modelUsed = modelUsed
+        self.isEdited = isEdited
     }
     
     enum Role {
