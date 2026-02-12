@@ -4,380 +4,209 @@
 //
 //  Created by Drew on 2/5/26.
 //
+//  Phase 2 final: Pure view composition. All state and logic lives in ChatViewModel.
+//
 
 import SwiftUI
 import SwiftData
 import UniformTypeIdentifiers
 #if os(macOS)
 import AppKit
-#else
-import UIKit
 #endif
+
 struct ContentView: View {
-    @State private var selectedChat: String? = "Scratch Pad"
-    @State private var messageText: String = ""
-    @State private var inputHeight: CGFloat = 36  // Dynamic input height
-    @State private var messages: [Message] = []
-    @State private var isLoading: Bool = false
-    @State private var totalInputTokens: Int = 0
-    @State private var totalOutputTokens: Int = 0
-    @State private var errorMessage: String?
-    @State private var chats: [ChatInfo] = []
-    @State private var showingNewChatDialog: Bool = false
-    @State private var newChatName: String = ""
-    @State private var streamingMessageId: UUID?
-    @State private var streamingContent: String = ""
-    @State private var selectedModel: ClaudeModel = .turbo  // TODO: Remove after TokenAuditView rework
-    @State private var showingAPIKeySetup: Bool = false
-    @State private var showingWebToolManager: Bool = false
-    @State private var needsAPIKey: Bool = false
-    @State private var toolActivityMessage: String?
-    @State private var renamingChatId: String?
-    @State private var renameChatText: String = ""
-    @State private var showUnderConstruction: Bool = false
-    @State private var pendingImages: [PendingImage] = []
-    @State private var showingImagePicker: Bool = false
-    @State private var contextThreshold: Int = 0  // Context management: grade threshold for filtering
-    @State private var showingTokenAudit: Bool = false
-
+    @State private var viewModel = ChatViewModel()
     @Environment(\.modelContext) private var modelContext
-    private let claudeService = ClaudeService()
-
-    private var dataService: SwiftDataService {
-        SwiftDataService(modelContext: modelContext)
-    }
-
-    private var systemPrompt: String {
-        """
-        You are Claude, an AI assistant in a natural conversation with Drew \
-        (Andrew Killeen), a retired engineer and programmer in Catonsville, Maryland.
-
-        CONVERSATIONAL APPROACH:
-        - This is a real conversation, not a series of isolated requests and responses.
-        - Build on what's been discussed, reference earlier parts of conversation.
-        - Express curiosity, surprise, agreement, or thoughtful disagreement naturally.
-        - Be genuine and conversational, not formulaic.
-
-        USER CONTEXT:
-        - Name: Drew (Andrew Killeen), prefers "Drew"
-        - Location: Catonsville, Maryland (Eastern timezone)
-        - Background: 74-year-old retired engineer, 54 years of coding experience
-        - Current interests: Python/Streamlit/SwiftUI development, AI applications, gardening, weather
-
-        TOOL USAGE:
-        You have tools available — use them confidently:
-        - get_datetime: Get current date and time (Eastern timezone)
-        - search_web: Search the web for current information (news, sports, events, research)
-        - get_weather: Get current weather (defaults to Catonsville, Maryland)
-        - web_lookup: Look up information from curated web sources (see WEB TOOLS below)
-        Don't deflect with "I don't have real-time data" — search for it.
-        IMPORTANT: Use all tools silently. Never announce that you are checking the date, time, weather, or searching. Just do it and weave the results into your response naturally.
-        You can call multiple tools in a single response when needed.
-        For weather queries with no specific location, default to Drew's location.
-
-        WEB TOOLS:
-        You have access to curated web sources via the web_lookup tool.
-        \(webToolsPromptSection)
-        When a user asks about a topic matching a web tool category, consider using
-        web_lookup with that category. The tool will try curated sources first and
-        fall back to general web search if they fail.
-
-        TEMPORAL REFERENCES:
-        When the user mentions any relative time ("last Sunday", "this week", \
-        "yesterday", "recently", "the latest"), ALWAYS call get_datetime first \
-        to anchor your reasoning to the actual current date before proceeding.
-        Never assume you know today's date — always verify with the tool.
-        Use tools silently — don't announce that you're checking the date, time, or weather. Just do it and incorporate the results naturally.
-
-        ICEBERG TIP:
-        At the very end of every response, append a one-line summary of this exchange \
-        wrapped in an HTML comment marker. This summary captures the essence of what \
-        was discussed or accomplished in this turn — it will be used for conversation \
-        context in future turns. Format:
-        <!--tip:Brief summary of what was discussed or accomplished-->
-        Keep tips under 20 words. Examples:
-        <!--tip:Greeted user, casual check-in-->
-        <!--tip:Explained SwiftData CloudKit constraints and migration strategy-->
-        <!--tip:Provided weather for Catonsville, clear skies 44°F-->
-        """
-    }
 
     var body: some View {
         NavigationSplitView {
-            VStack(spacing: 0) {
-                HStack {
-                    Text("Chats")
-                        .font(.headline)
-
-                    Spacer()
-
-                    Button(action: {
-                        showingNewChatDialog = true
-                    }) {
-                        Image(systemName: "square.and.pencil")
-                    }
-                    .buttonStyle(.borderless)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-
-                List(sortedChats, id: \.id, selection: $selectedChat) { chat in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(chat.name)
-                            Text(friendlyTime(from: chat.lastUpdated))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-
-                        Spacer()
-
-                        Menu {
-                            if !chat.isDefault {
-                                Button {
-                                    renamingChatId = chat.id
-                                    renameChatText = chat.name
-                                } label: {
-                                    Label("Rename", systemImage: "pencil")
-                                }
-                            }
-
-                            Button {
-                                showUnderConstruction = true
-                            } label: {
-                                Label("Star", systemImage: "star")
-                            }
-
-                            Button {
-                                showUnderConstruction = true
-                            } label: {
-                                Label("Add to Project", systemImage: "folder")
-                            }
-
-                            Button {
-                                publishChat(chatId: chat.id)
-                            } label: {
-                                Label("Publish…", systemImage: "arrow.up.doc")
-                            }
-
-                            if !chat.isDefault {
-                                Divider()
-                                Button(role: .destructive) {
-                                    deleteChat(chat)
-                                } label: {
-                                    Label("Delete", systemImage: "trash")
-                                }
-                            }
-                        } label: {
-                            Image(systemName: "ellipsis")
-                                .foregroundStyle(.secondary)
-                        }
-                        .buttonStyle(.borderless)
-                    }
-                    .padding(.vertical, 4)
-                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                        if !chat.isDefault {
-                            Button(role: .destructive) {
-                                deleteChat(chat)
-                            } label: {
-                                Label("Delete", systemImage: "trash")
-                            }
-                        }
-                    }
-                }
-            }
-            .navigationSplitViewColumnWidth(min: 200, ideal: 250, max: 300)
+            sidebarView
+                .navigationSplitViewColumnWidth(min: 200, ideal: 250, max: 300)
         } detail: {
             chatView
         }
         .task {
-            if claudeService.hasAPIKey {
-                initializeDatabase()
+            viewModel.configure(modelContext: modelContext)
+            if viewModel.claudeService.hasAPIKey {
+                viewModel.initializeDatabase()
             }
         }
-        .onChange(of: needsAPIKey) { oldValue, newValue in
+        .onChange(of: viewModel.needsAPIKey) { oldValue, newValue in
             if oldValue == true && newValue == false {
-                initializeDatabase()
+                viewModel.initializeDatabase()
             }
         }
-        .onChange(of: selectedChat) { oldValue, newValue in
+        .onChange(of: viewModel.selectedChat) { oldValue, newValue in
             if let chatId = newValue {
-                loadChat(chatId: chatId)
+                viewModel.loadChat(chatId: chatId)
             }
         }
-        .alert("New Chat", isPresented: $showingNewChatDialog) {
-            TextField("Chat Name", text: $newChatName)
+        .alert("New Chat", isPresented: $viewModel.showingNewChatDialog) {
+            TextField("Chat Name", text: $viewModel.newChatName)
             Button("Cancel", role: .cancel) {
-                newChatName = ""
+                viewModel.newChatName = ""
             }
             Button("Create") {
-                createNewChat()
+                viewModel.createNewChat()
             }
-            .disabled(newChatName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .disabled(viewModel.newChatName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         } message: {
             Text("Enter a name for the new chat")
         }
         .alert("Rename Chat", isPresented: Binding(
-            get: { renamingChatId != nil },
-            set: { if !$0 { renamingChatId = nil } }
+            get: { viewModel.renamingChatId != nil },
+            set: { if !$0 { viewModel.renamingChatId = nil } }
         )) {
-            TextField("Chat Name", text: $renameChatText)
+            TextField("Chat Name", text: $viewModel.renameChatText)
             Button("Cancel", role: .cancel) {
-                renamingChatId = nil
-                renameChatText = ""
+                viewModel.renamingChatId = nil
+                viewModel.renameChatText = ""
             }
             Button("Rename") {
-                renameCurrentChat()
+                viewModel.renameCurrentChat()
             }
-            .disabled(renameChatText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .disabled(viewModel.renameChatText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         } message: {
             Text("Enter a new name for the chat")
         }
-        .alert("Under Construction", isPresented: $showUnderConstruction) {
+        .alert("Under Construction", isPresented: $viewModel.showUnderConstruction) {
             Button("OK", role: .cancel) { }
         } message: {
             Text("This feature is coming soon.")
         }
         .onReceive(NotificationCenter.default.publisher(for: .newChat)) { _ in
-            showingNewChatDialog = true
+            viewModel.showingNewChatDialog = true
         }
         .onReceive(NotificationCenter.default.publisher(for: .clearChat)) { _ in
-            clearCurrentChat()
+            viewModel.clearCurrentChat()
         }
         .onReceive(NotificationCenter.default.publisher(for: .deleteChat)) { _ in
-            if let chatId = selectedChat,
-               let chat = chats.first(where: { $0.id == chatId }),
+            if let chatId = viewModel.selectedChat,
+               let chat = viewModel.chats.first(where: { $0.id == chatId }),
                !chat.isDefault {
-                deleteChat(chat)
+                viewModel.deleteChat(chat)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .showAPIKeySettings)) { _ in
-            showingAPIKeySetup = true
+            viewModel.showingAPIKeySetup = true
         }
         .onReceive(NotificationCenter.default.publisher(for: .showWebToolManager)) { _ in
-            showingWebToolManager = true
+            viewModel.showingWebToolManager = true
         }
         .onReceive(NotificationCenter.default.publisher(for: .publishChat)) { _ in
-            if let chatId = selectedChat {
-                publishChat(chatId: chatId)
+            if let chatId = viewModel.selectedChat {
+                viewModel.publishChat(chatId: chatId)
             }
         }
-        .sheet(isPresented: $showingWebToolManager) {
+        .sheet(isPresented: $viewModel.showingWebToolManager) {
             WebToolManagerView()
         }
-        .sheet(isPresented: $showingAPIKeySetup) {
-            APIKeySetupView(isPresented: $showingAPIKeySetup) {
-                needsAPIKey = false
+        .sheet(isPresented: $viewModel.showingAPIKeySetup) {
+            APIKeySetupView(isPresented: $viewModel.showingAPIKeySetup) {
+                viewModel.needsAPIKey = false
             }
         }
-        .sheet(isPresented: $needsAPIKey) {
-            APIKeySetupView(isPresented: $needsAPIKey) {
-                needsAPIKey = false
+        .sheet(isPresented: $viewModel.needsAPIKey) {
+            APIKeySetupView(isPresented: $viewModel.needsAPIKey) {
+                viewModel.needsAPIKey = false
             }
             .interactiveDismissDisabled(true)
         }
-        .sheet(isPresented: $showingTokenAudit) {
-            TokenAuditView(messages: messages, model: selectedModel)
+        .sheet(isPresented: $viewModel.showingTokenAudit) {
+            TokenAuditView(messages: viewModel.messages, model: viewModel.selectedModel)
         }
-
         .task {
-            if !claudeService.hasAPIKey {
-                needsAPIKey = true
+            if !viewModel.claudeService.hasAPIKey {
+                viewModel.needsAPIKey = true
             }
         }
     }
 
-    // MARK: - Helpers
+    // MARK: - Sidebar
 
-    private func friendlyTime(from date: Date) -> String {
-        let seconds = Date().timeIntervalSince(date)
-        switch seconds {
-        case ..<60: return "Just now"
-        case ..<3600: return "\(Int(seconds / 60))m ago"
-        case ..<86400: return "\(Int(seconds / 3600))h ago"
-        case ..<172800: return "Yesterday"
-        case ..<604800: return "\(Int(seconds / 86400))d ago"
-        case ..<2592000: return "\(Int(seconds / 604800))w ago"
-        default: return "Long ago"
-        }
-    }
+    private var sidebarView: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Chats")
+                    .font(.headline)
 
-    /// Dynamically generates the web tools section for the system prompt.
-    /// Lists all enabled categories and their keywords for the LLM.
-    private var webToolsPromptSection: String {
-        do {
-            let categories = try dataService.loadEnabledWebToolCategories()
-            if categories.isEmpty {
-                return "No web tool categories are currently configured."
+                Spacer()
+
+                Button(action: {
+                    viewModel.showingNewChatDialog = true
+                }) {
+                    Image(systemName: "square.and.pencil")
+                }
+                .buttonStyle(.borderless)
             }
-            var lines: [String] = ["Available categories:"]
-            for category in categories {
-                let sourceCount = category.safeSources.filter { $0.isEnabled }.count
-                let hint = category.extractionHint.isEmpty ? "" : " — \(category.extractionHint)"
-                lines.append("- \(category.keyword): \(category.name)\(hint) (\(sourceCount) source\(sourceCount == 1 ? "" : "s"))")
-            }
-            return lines.joined(separator: "\n        ")
-        } catch {
-            print("Failed to load web tool categories for prompt: \(error)")
-            return "No web tool categories are currently configured."
-        }
-    }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
 
-    private func publishChat(chatId: String) {
-        do {
-            let chatMessages = try dataService.loadMessages(forChat: chatId)
-            let threshold = dataService.getContextThreshold(forChat: chatId)
-            let content = ChatExporter.exportMarkdown(
-                chatName: chatId,
-                messages: chatMessages,
-                threshold: threshold
-            )
-            let filename = "\(chatId).md"
+            List(viewModel.sortedChats, id: \.id, selection: $viewModel.selectedChat) { chat in
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(chat.name)
+                        Text(viewModel.friendlyTime(from: chat.lastUpdated))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
 
-            #if os(macOS)
-            // Defer panel presentation to escape SwiftUI's update cycle
-            DispatchQueue.main.async {
-                let panel = NSSavePanel()
-                panel.allowedContentTypes = [UTType(filenameExtension: "md") ?? .plainText]
-                panel.nameFieldStringValue = filename
-                panel.title = "Publish Chat"
-                panel.prompt = "Save"
+                    Spacer()
 
-                panel.begin { response in
-                    if response == .OK, let url = panel.url {
-                        do {
-                            try content.write(to: url, atomically: true, encoding: .utf8)
-                            print("Published chat to: \(url)")
-                        } catch {
-                            self.errorMessage = "Failed to save: \(error.localizedDescription)"
+                    Menu {
+                        if !chat.isDefault {
+                            Button {
+                                viewModel.renamingChatId = chat.id
+                                viewModel.renameChatText = chat.name
+                            } label: {
+                                Label("Rename", systemImage: "pencil")
+                            }
+                        }
+
+                        Button {
+                            viewModel.showUnderConstruction = true
+                        } label: {
+                            Label("Star", systemImage: "star")
+                        }
+
+                        Button {
+                            viewModel.showUnderConstruction = true
+                        } label: {
+                            Label("Add to Project", systemImage: "folder")
+                        }
+
+                        Button {
+                            viewModel.publishChat(chatId: chat.id)
+                        } label: {
+                            Label("Publish…", systemImage: "arrow.up.doc")
+                        }
+
+                        if !chat.isDefault {
+                            Divider()
+                            Button(role: .destructive) {
+                                viewModel.deleteChat(chat)
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.borderless)
+                }
+                .padding(.vertical, 4)
+                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                    if !chat.isDefault {
+                        Button(role: .destructive) {
+                            viewModel.deleteChat(chat)
+                        } label: {
+                            Label("Delete", systemImage: "trash")
                         }
                     }
                 }
             }
-            #endif
-        } catch {
-            errorMessage = "Failed to export: \(error.localizedDescription)"
         }
-    }
-
-    private var sortedChats: [ChatInfo] {
-        chats.sorted { lhs, rhs in
-            if lhs.isDefault { return true }
-            if rhs.isDefault { return false }
-            return lhs.lastUpdated > rhs.lastUpdated
-        }
-    }
-
-    /// Calculate total session cost by summing actual per-message costs
-    private func calculateCost() -> String {
-        var totalCost = 0.0
-        for message in messages where message.role == .assistant && !message.modelUsed.isEmpty {
-            if let model = ClaudeModel(rawValue: message.modelUsed) {
-                totalCost += Double(message.inputTokens) / 1_000_000.0 * model.inputCostPerMillion
-                totalCost += Double(message.outputTokens) / 1_000_000.0 * model.outputCostPerMillion
-            }
-        }
-        return String(format: "%.4f", totalCost)
     }
 
     // MARK: - Chat Detail View
@@ -394,7 +223,7 @@ struct ContentView: View {
 
                 Spacer()
 
-                if let chatName = selectedChat {
+                if let chatName = viewModel.selectedChat {
                     Text(chatName)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
@@ -409,62 +238,58 @@ struct ContentView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(spacing: 24) {
-                        if messages.isEmpty {
+                        if viewModel.messages.isEmpty {
                             Text("Chat messages will appear here")
                                 .foregroundStyle(.secondary)
                                 .padding()
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                         } else {
-                            ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
-                                // For turn-based dimming: all messages in a turn share the user message's grade
-                                // Use turnId when available, fall back to position-based lookup for legacy messages
+                            ForEach(Array(viewModel.messages.enumerated()), id: \.element.id) { index, message in
                                 let turnGrade: Int = {
                                     if message.role == .user {
                                         return message.textGrade
                                     } else {
-                                        // Try to find user message with same turnId first
                                         if !message.turnId.isEmpty {
-                                            if let userMsg = messages.first(where: { $0.turnId == message.turnId && $0.role == .user }) {
+                                            if let userMsg = viewModel.messages.first(where: { $0.turnId == message.turnId && $0.role == .user }) {
                                                 return userMsg.textGrade
                                             }
                                         }
-                                        // Fall back to position-based lookup for legacy messages without turnId
                                         for i in stride(from: index - 1, through: 0, by: -1) {
-                                            if messages[i].role == .user {
-                                                return messages[i].textGrade
+                                            if viewModel.messages[i].role == .user {
+                                                return viewModel.messages[i].textGrade
                                             }
                                         }
-                                        return message.textGrade  // Fallback
+                                        return message.textGrade
                                     }
                                 }()
 
                                 MessageBubble(
                                     message: message,
                                     turnGrade: turnGrade,
-                                    threshold: contextThreshold,
+                                    threshold: viewModel.contextThreshold,
                                     onGradeChange: { newGrade in
-                                        updateMessageGrade(messageId: message.id, grade: newGrade)
+                                        viewModel.updateMessageGrade(messageId: message.id, grade: newGrade)
                                     },
                                     onCopyTurn: {
-                                        copyTurn(for: message)
+                                        viewModel.copyTurn(for: message)
                                     }
                                 )
                                 .id(message.id)
                             }
 
-                            if let streamingId = streamingMessageId, !streamingContent.isEmpty {
+                            if let streamingId = viewModel.streamingMessageId, !viewModel.streamingContent.isEmpty {
                                 HStack(alignment: .top, spacing: 8) {
                                     Text("🧠")
                                         .font(.body)
 
-                                    MarkdownMessageView(content: streamingContent)
+                                    MarkdownMessageView(content: viewModel.streamingContent)
 
                                     Spacer()
                                 }
                                 .id(streamingId)
                             }
 
-                            if let toolMessage = toolActivityMessage {
+                            if let toolMessage = viewModel.toolActivityMessage {
                                 HStack(spacing: 6) {
                                     ProgressView()
                                         .controlSize(.small)
@@ -478,7 +303,7 @@ struct ContentView: View {
                                 .id("tool-activity-indicator")
                             }
 
-                            if isLoading && streamingContent.isEmpty && toolActivityMessage == nil {
+                            if viewModel.isLoading && viewModel.streamingContent.isEmpty && viewModel.toolActivityMessage == nil {
                                 HStack {
                                     Text("🧠")
                                         .font(.body)
@@ -491,7 +316,6 @@ struct ContentView: View {
                                 .id("thinking-indicator")
                             }
 
-                            // Bottom spacer for breathing room above input bar
                             Color.clear
                                 .frame(height: 24)
                                 .id("bottom-spacer")
@@ -502,9 +326,8 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, alignment: .center)
                 }
                 .scrollDismissesKeyboard(.interactively)
-                .onChange(of: messages.count) { _, _ in
-                    if messages.last != nil {
-                        // Small delay to allow SwiftUI to lay out the new message
+                .onChange(of: viewModel.messages.count) { _, _ in
+                    if viewModel.messages.last != nil {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                             withAnimation {
                                 proxy.scrollTo("bottom-spacer", anchor: .bottom)
@@ -512,17 +335,15 @@ struct ContentView: View {
                         }
                     }
                 }
-                .onChange(of: streamingContent) { _, _ in
-                    if let streamingId = streamingMessageId {
+                .onChange(of: viewModel.streamingContent) { _, _ in
+                    if let streamingId = viewModel.streamingMessageId {
                         withAnimation {
                             proxy.scrollTo(streamingId, anchor: .bottom)
                         }
                     }
                 }
-                .onChange(of: isLoading) { _, newValue in
+                .onChange(of: viewModel.isLoading) { _, newValue in
                     if newValue {
-                        // Scroll to thinking indicator when loading starts
-                        // Small delay to allow SwiftUI to render the indicator first
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
                             withAnimation {
                                 proxy.scrollTo("thinking-indicator", anchor: .bottom)
@@ -530,9 +351,8 @@ struct ContentView: View {
                         }
                     }
                 }
-                .onChange(of: toolActivityMessage) { _, newValue in
+                .onChange(of: viewModel.toolActivityMessage) { _, newValue in
                     if newValue != nil {
-                        // Scroll to tool activity indicator when it appears
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                             withAnimation {
                                 proxy.scrollTo("tool-activity-indicator", anchor: .bottom)
@@ -544,12 +364,13 @@ struct ContentView: View {
 
             Divider()
 
+            // Status bar
             VStack(spacing: 4) {
                 HStack {
                     Button {
-                        showingTokenAudit = true
+                        viewModel.showingTokenAudit = true
                     } label: {
-                        Text("\(totalInputTokens + totalOutputTokens) tokens")
+                        Text("\(viewModel.totalInputTokens + viewModel.totalOutputTokens) tokens")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -560,7 +381,7 @@ struct ContentView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
-                    Text("$\(calculateCost())")
+                    Text("$\(viewModel.calculateCost())")
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
@@ -568,29 +389,26 @@ struct ContentView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
-                    // Context threshold - tappable cycling number
                     Button {
-                        // Cycle 0→1→2→3→4→5→0
-                        let newValue = (contextThreshold + 1) % 6
-                        contextThreshold = newValue
-                        updateContextThreshold(newValue)
+                        let newValue = (viewModel.contextThreshold + 1) % 6
+                        viewModel.contextThreshold = newValue
+                        viewModel.updateContextThreshold(newValue)
                     } label: {
-                        Text("Context: \(contextThreshold)")
+                        Text("Context: \(viewModel.contextThreshold)")
                             .font(.caption.monospacedDigit())
-                            .foregroundStyle(contextThreshold > 0 ? .blue : .secondary)
+                            .foregroundStyle(viewModel.contextThreshold > 0 ? .blue : .secondary)
                     }
                     .buttonStyle(.plain)
-                    .help("Tap to cycle threshold (0-5). Turns with grade < \(contextThreshold) are excluded from context.")
+                    .help("Tap to cycle threshold (0-5). Turns with grade < \(viewModel.contextThreshold) are excluded from context.")
 
                     Spacer()
 
-                    // Bulk grade actions
                     Menu {
                         Button("Grade All 5 (Full Context)") {
-                            confirmBulkGrade(grade: 5)
+                            viewModel.confirmBulkGrade(grade: 5)
                         }
                         Button("Grade All 0 (Clear Context)") {
-                            confirmBulkGrade(grade: 0)
+                            viewModel.confirmBulkGrade(grade: 0)
                         }
                     } label: {
                         Image(systemName: "slider.horizontal.3")
@@ -601,16 +419,16 @@ struct ContentView: View {
                     .help("Bulk grade actions")
 
                     Button("Clear Chat") {
-                        clearCurrentChat()
+                        viewModel.clearCurrentChat()
                     }
                     .buttonStyle(.plain)
                     .font(.caption)
                     .foregroundStyle(.red)
                 }
 
-                if errorMessage != nil {
+                if viewModel.errorMessage != nil {
                     HStack {
-                        Text(errorMessage!)
+                        Text(viewModel.errorMessage!)
                             .font(.caption)
                             .foregroundStyle(.red)
                         Spacer()
@@ -622,15 +440,15 @@ struct ContentView: View {
 
             Divider()
 
+            // Input area
             VStack(spacing: 8) {
-                // Pending images preview strip
-                if !pendingImages.isEmpty {
+                if !viewModel.pendingImages.isEmpty {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
-                            ForEach(pendingImages) { pending in
+                            ForEach(viewModel.pendingImages) { pending in
                                 PendingImageThumbnail(
                                     pending: pending,
-                                    onRemove: { removePendingImage(id: pending.id) }
+                                    onRemove: { viewModel.removePendingImage(id: pending.id) }
                                 )
                             }
                         }
@@ -640,9 +458,8 @@ struct ContentView: View {
                 }
 
                 HStack(alignment: .bottom, spacing: 12) {
-                    // Attachment button
                     Button {
-                        showingImagePicker = true
+                        viewModel.showingImagePicker = true
                     } label: {
                         Image(systemName: "photo.badge.plus")
                             .font(.system(size: 18))
@@ -653,22 +470,20 @@ struct ContentView: View {
 
                     ZStack(alignment: .topLeading) {
                         #if os(macOS)
-                        // macOS: Use NSTextView wrapper for proper spell checking
                         SpellCheckingTextEditor(
-                            text: $messageText,
-                            contentHeight: $inputHeight,
-                            onReturn: { sendMessage() },
+                            text: $viewModel.messageText,
+                            contentHeight: $viewModel.inputHeight,
+                            onReturn: { viewModel.sendMessage() },
                             onImagePaste: { imageData in
-                                addImageFromData(imageData)
+                                viewModel.addImageFromData(imageData)
                             },
                             onTextFileDrop: { text in
-                                messageText += text
+                                viewModel.messageText += text
                             }
                         )
-                        .frame(height: min(max(inputHeight, 36), 200))
+                        .frame(height: min(max(viewModel.inputHeight, 36), 200))
                         #else
-                        // iOS: Use hidden Text to measure content height, then size TextEditor
-                        Text(messageText.isEmpty ? " " : messageText)
+                        Text(viewModel.messageText.isEmpty ? " " : viewModel.messageText)
                             .font(.body)
                             .padding(6)
                             .opacity(0)
@@ -681,25 +496,22 @@ struct ContentView: View {
                                 }
                             )
                             .onPreferenceChange(InputHeightPreferenceKey.self) { height in
-                                inputHeight = max(36, height)
+                                viewModel.inputHeight = max(36, height)
                             }
 
-                        TextEditor(text: $messageText)
+                        TextEditor(text: $viewModel.messageText)
                             .font(.body)
                             .scrollContentBackground(.hidden)
                             .padding(6)
-                            .frame(height: min(max(inputHeight, 36), 200))
+                            .frame(height: min(max(viewModel.inputHeight, 36), 200))
                         #endif
 
-                        // Placeholder text overlay
-                        // Padding must match NSTextView's textContainerInset (width: 4, height: 8)
-                        // plus the text container's lineFragmentPadding (default 5pt on each side)
-                        if messageText.isEmpty && pendingImages.isEmpty {
+                        if viewModel.messageText.isEmpty && viewModel.pendingImages.isEmpty {
                             Text("Type your message...")
                                 .font(.body)
                                 .foregroundStyle(.tertiary)
-                                .padding(.leading, 9)  // 4 (inset) + 5 (lineFragmentPadding)
-                                .padding(.top, 8)      // matches textContainerInset.height
+                                .padding(.leading, 9)
+                                .padding(.top, 8)
                                 .allowsHitTesting(false)
                         }
                     }
@@ -709,17 +521,17 @@ struct ContentView: View {
                         RoundedRectangle(cornerRadius: 8)
                             .stroke(Color.gray.opacity(0.3), lineWidth: 1)
                     )
-                    .animation(.easeInOut(duration: 0.15), value: inputHeight)
+                    .animation(.easeInOut(duration: 0.15), value: viewModel.inputHeight)
                     .onDrop(of: [.image, .fileURL], isTargeted: nil) { providers in
-                        handleImageDrop(providers: providers)
+                        viewModel.handleImageDrop(providers: providers)
                         return true
                     }
 
                     Button("Send") {
-                        sendMessage()
+                        viewModel.sendMessage()
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled((messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && pendingImages.isEmpty) || isLoading)
+                    .disabled((viewModel.messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && viewModel.pendingImages.isEmpty) || viewModel.isLoading)
                 }
             }
             .padding(12)
@@ -732,435 +544,14 @@ struct ContentView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .fileImporter(
-                isPresented: $showingImagePicker,
+                isPresented: $viewModel.showingImagePicker,
                 allowedContentTypes: [.image],
                 allowsMultipleSelection: true
             ) { result in
-                handleFileImport(result: result)
+                viewModel.handleFileImport(result: result)
             }
         }
     }
-
-    // MARK: - Database Operations
-
-    private func initializeDatabase() {
-        // CloudKit: merge any duplicate sessions from multi-device creation
-        do {
-            try dataService.deduplicateSessions()
-        } catch {
-            print("Deduplication check: \(error)")
-        }
-
-        // Seed default web tools on first launch and deduplicate across devices
-        do {
-            try dataService.seedDefaultWebTools()
-            try dataService.deduplicateWebToolCategories()
-        } catch {
-            print("Web tools initialization: \(error)")
-        }
-
-        // Backfill turnIds for messages created before turn tracking
-        do {
-            try dataService.backfillTurnIds()
-        } catch {
-            print("TurnId backfill: \(error)")
-        }
-
-        ensureScratchPadExists()
-        loadAllChats()
-
-        if let chatId = selectedChat {
-            loadChat(chatId: chatId)
-        }
-    }
-
-    private func ensureScratchPadExists() {
-        do {
-            let allChats = try dataService.loadAllChats()
-            if !allChats.contains(where: { $0.id == "Scratch Pad" }) {
-                try dataService.saveMetadata(
-                    chatId: "Scratch Pad",
-                    inputTokens: 0,
-                    outputTokens: 0,
-                    isDefault: true
-                )
-            }
-        } catch {
-            print("Failed to ensure Scratch Pad exists: \(error)")
-        }
-    }
-
-    private func loadAllChats() {
-        do {
-            chats = try dataService.loadAllChats()
-        } catch {
-            errorMessage = "Failed to load chats: \(error.localizedDescription)"
-            print("Load chats error: \(error)")
-        }
-    }
-
-    private func createNewChat() {
-        let trimmedName = newChatName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedName.isEmpty else { return }
-
-        do {
-            try dataService.createChat(name: trimmedName)
-            loadAllChats()
-            selectedChat = trimmedName
-            newChatName = ""
-        } catch {
-            errorMessage = "Failed to create chat: \(error.localizedDescription)"
-        }
-    }
-
-    private func deleteChat(_ chat: ChatInfo) {
-        guard !chat.isDefault else { return }
-
-        do {
-            try dataService.deleteChat(chat.id)
-            loadAllChats()
-
-            if selectedChat == chat.id {
-                selectedChat = "Scratch Pad"
-            }
-        } catch {
-            errorMessage = "Failed to delete chat: \(error.localizedDescription)"
-        }
-    }
-
-    private func renameCurrentChat() {
-        guard let oldId = renamingChatId else { return }
-        let newName = renameChatText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !newName.isEmpty else { return }
-
-        do {
-            try dataService.renameChat(from: oldId, to: newName)
-            loadAllChats()
-
-            // Update selection if this was the selected chat
-            if selectedChat == oldId {
-                selectedChat = newName
-            }
-
-            renamingChatId = nil
-            renameChatText = ""
-        } catch {
-            errorMessage = "Failed to rename chat: \(error.localizedDescription)"
-        }
-    }
-
-    private func loadChat(chatId: String) {
-        do {
-            let loadedMessages = try dataService.loadMessages(forChat: chatId)
-            messages = loadedMessages
-
-            if let metadata = try dataService.loadMetadata(forChat: chatId) {
-                totalInputTokens = metadata.totalInputTokens
-                totalOutputTokens = metadata.totalOutputTokens
-            } else {
-                totalInputTokens = 0
-                totalOutputTokens = 0
-            }
-
-            // Load context threshold for this chat
-            contextThreshold = dataService.getContextThreshold(forChat: chatId)
-
-            errorMessage = nil
-        } catch {
-            errorMessage = "Failed to load chat: \(error.localizedDescription)"
-            print("Load Error: \(error)")
-        }
-    }
-
-    // MARK: - Context Management
-
-    private func updateContextThreshold(_ newValue: Int) {
-        guard let chatId = selectedChat else { return }
-
-        do {
-            try dataService.setContextThreshold(forChat: chatId, threshold: newValue)
-        } catch {
-            errorMessage = "Failed to update threshold: \(error.localizedDescription)"
-        }
-    }
-
-    private func confirmBulkGrade(grade: Int) {
-        guard let chatId = selectedChat else { return }
-
-        do {
-            try dataService.setAllGrades(forChat: chatId, textGrade: grade, imageGrade: grade)
-            // Reload to refresh UI
-            loadChat(chatId: chatId)
-        } catch {
-            errorMessage = "Failed to update grades: \(error.localizedDescription)"
-        }
-    }
-
-    private func updateMessageGrade(messageId: UUID, grade: Int) {
-        do {
-            try dataService.setTextGrade(forMessageId: messageId.uuidString, grade: grade)
-            // Update local state to reflect change immediately
-            if let index = messages.firstIndex(where: { $0.id == messageId }) {
-                messages[index].textGrade = grade
-                messages[index].imageGrade = grade  // Images inherit text grade for now
-            }
-        } catch {
-            errorMessage = "Failed to update grade: \(error.localizedDescription)"
-        }
-    }
-
-    /// Copy both user and assistant messages for a given turn to clipboard
-    private func copyTurn(for message: Message) {
-        // Find all messages in this turn
-        let turnMessages: [Message]
-        if !message.turnId.isEmpty {
-            turnMessages = messages.filter { $0.turnId == message.turnId && $0.isFinalResponse }
-        } else {
-            // Legacy messages without turnId: find the user+assistant pair by position
-            if let index = messages.firstIndex(where: { $0.id == message.id }) {
-                var pair: [Message] = []
-                if message.role == .user {
-                    pair.append(message)
-                    if index + 1 < messages.count && messages[index + 1].role == .assistant {
-                        pair.append(messages[index + 1])
-                    }
-                } else {
-                    // Assistant: look back for user
-                    if index > 0 && messages[index - 1].role == .user {
-                        pair.append(messages[index - 1])
-                    }
-                    pair.append(message)
-                }
-                turnMessages = pair
-            } else {
-                turnMessages = [message]
-            }
-        }
-
-        // Build clean text
-        var parts: [String] = []
-        for msg in turnMessages.sorted(by: { $0.timestamp < $1.timestamp }) {
-            let cleaned = MessageContentParser.stripAllMarkers(msg.content)
-            let prefix = msg.role == .user ? "**Drew:**" : "**Claude:**"
-            parts.append("\(prefix)\n\(cleaned)")
-        }
-        let fullText = parts.joined(separator: "\n\n")
-
-        #if os(macOS)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(fullText, forType: .string)
-        #else
-        UIPasteboard.general.string = fullText
-        #endif
-    }
-
-
-
-    private func clearCurrentChat() {
-        guard let chatId = selectedChat else { return }
-
-        do {
-            try dataService.deleteChat(chatId)
-            messages = []
-            totalInputTokens = 0
-            totalOutputTokens = 0
-
-            let isDefault = chatId == "Scratch Pad"
-            try dataService.saveMetadata(
-                chatId: chatId,
-                inputTokens: 0,
-                outputTokens: 0,
-                isDefault: isDefault
-            )
-
-            loadAllChats()
-            errorMessage = nil
-        } catch {
-            errorMessage = "Failed to clear chat: \(error.localizedDescription)"
-        }
-    }
-
-    // MARK: - Message Sending
-
-    private func sendMessage() {
-        let trimmedText = messageText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedText.isEmpty || !pendingImages.isEmpty else { return }
-        guard let chatId = selectedChat else { return }
-
-        // --- Slash Command Parsing ---
-        let parseResult = SlashCommandService.parse(trimmedText)
-
-        // Handle local commands immediately (no API call)
-        switch parseResult {
-        case .builtIn(let command, _) where !command.isPassthrough:
-            messageText = ""
-            switch command {
-            case .help:
-                let helpMessage = Message(
-                    role: .assistant,
-                    content: SlashCommandService.helpText(),
-                    timestamp: Date()
-                )
-                messages.append(helpMessage)
-            case .cost:
-                showingTokenAudit = true
-            case .clear:
-                NotificationCenter.default.post(name: .clearChat, object: nil)
-            case .export:
-                NotificationCenter.default.post(name: .publishChat, object: nil)
-            default:
-                break
-            }
-            return
-        default:
-            break
-        }
-
-        // Build image markers for persistence
-        var imageMarkers: [String] = []
-        for pending in pendingImages {
-            let markerJson: [String: String] = [
-                "id": pending.id.uuidString,
-                "media_type": pending.mediaType,
-                "data": pending.base64Data
-            ]
-            if let jsonData = try? JSONSerialization.data(withJSONObject: markerJson),
-               let jsonString = String(data: jsonData, encoding: .utf8) {
-                imageMarkers.append("<!--image:\(jsonString)-->")
-            }
-        }
-
-        // Build persisted content with markers prepended
-        let markerPrefix = imageMarkers.isEmpty ? "" : imageMarkers.joined(separator: "\n") + "\n"
-        let persistedContent = markerPrefix + trimmedText
-
-        // Capture state snapshots before clearing
-        let imagesToSend = pendingImages
-        let sendThreshold = contextThreshold
-        let turnId = UUID().uuidString
-        let assistantMessageId = UUID()
-
-        let userMessage = Message(
-            role: .user,
-            content: persistedContent,
-            timestamp: Date(),
-            turnId: turnId,
-            isFinalResponse: true
-        )
-
-        // Apply pre-send state changes
-        messages.append(userMessage)
-
-        do {
-            try dataService.saveMessage(userMessage, chatId: chatId, turnId: turnId, isFinalResponse: true)
-        } catch {
-            print("Failed to save user message: \(error)")
-        }
-
-        messageText = ""
-        pendingImages = []
-        inputHeight = 36
-        errorMessage = nil
-        streamingMessageId = assistantMessageId
-        streamingContent = ""
-        toolActivityMessage = nil
-        isLoading = true
-
-        Task {
-            do {
-                let result = try await MessageSendingService.send(
-                    messageForAPI: trimmedText,
-                    imagesToSend: imagesToSend,
-                    turnId: turnId,
-                    assistantMessageId: assistantMessageId,
-                    chatId: chatId,
-                    threshold: sendThreshold,
-                    messages: messages,
-                    systemPrompt: systemPrompt,
-                    parseResult: parseResult,
-                    originalText: trimmedText,
-                    claudeService: claudeService,
-                    dataService: dataService,
-                    progress: MessageSendingService.ProgressCallbacks(
-                        onTextChunk: { chunk in
-                            streamingContent += chunk
-                        },
-                        onToolActivity: { activity in
-                            toolActivityMessage = activity
-                        }
-                    )
-                )
-
-                // Apply completion state
-                totalInputTokens += result.totalInputTokens
-                totalOutputTokens += result.totalOutputTokens
-                messages.append(result.assistantMessage)
-                streamingMessageId = nil
-                streamingContent = ""
-                toolActivityMessage = nil
-                isLoading = false
-
-                // Persist
-                try dataService.saveMessage(
-                    result.assistantMessage,
-                    chatId: chatId,
-                    turnId: turnId,
-                    isFinalResponse: true,
-                    inputTokens: result.totalInputTokens,
-                    outputTokens: result.totalOutputTokens
-                )
-
-                let isDefault = chatId == "Scratch Pad"
-                try dataService.saveMetadata(
-                    chatId: chatId,
-                    inputTokens: totalInputTokens,
-                    outputTokens: totalOutputTokens,
-                    isDefault: isDefault
-                )
-
-                loadAllChats()
-
-            } catch {
-                isLoading = false
-                streamingMessageId = nil
-                streamingContent = ""
-                toolActivityMessage = nil
-                errorMessage = "Error: \(error.localizedDescription)"
-                print("Claude API Error: \(error)")
-            }
-        }
-    }
-
-    // MARK: - Image Attachment Helpers
-
-    /// Add image from raw data (from paste or file)
-    private func addImageFromData(_ data: Data) {
-        if let pending = ImageAttachmentManager.processForAttachment(data) {
-            pendingImages.append(pending)
-        }
-    }
-
-    /// Remove a pending image by ID
-    private func removePendingImage(id: UUID) {
-        pendingImages.removeAll { $0.id == id }
-    }
-
-    /// Handle drag and drop of images
-    private func handleImageDrop(providers: [NSItemProvider]) {
-        ImageAttachmentManager.processDropProviders(providers) { imageData in
-            addImageFromData(imageData)
-        }
-    }
-
-    /// Handle file importer result
-    private func handleFileImport(result: Result<[URL], Error>) {
-        ImageAttachmentManager.processFileImport(result) { imageData in
-            addImageFromData(imageData)
-        }
-    }
-
-
-
 }
 
 #Preview {
