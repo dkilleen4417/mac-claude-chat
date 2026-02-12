@@ -10,6 +10,7 @@
 		3A2B38122F3C421300E744D7 /* WebFetchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A2B38112F3C421300E744D7 /* WebFetchService.swift */; };
 		3A2B38142F3C4A9800E744D7 /* WebToolManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A2B38132F3C4A9800E744D7 /* WebToolManagerView.swift */; };
 		3A2B38332F3D379300E744D7 /* SlashCommandService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A2B38322F3D379300E744D7 /* SlashCommandService.swift */; };
+		3A2B387D2F3D5AFA00E744D7 /* MessageContentParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A2B387C2F3D5AFA00E744D7 /* MessageContentParser.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -46,6 +47,7 @@
 		3A2B38132F3C4A9800E744D7 /* WebToolManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebToolManagerView.swift; sourceTree = "<group>"; };
 		3A2B38192F3CB5BD00E744D7 /* Router​Eval */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "Router​Eval"; sourceTree = BUILT_PRODUCTS_DIR; };
 		3A2B38322F3D379300E744D7 /* SlashCommandService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlashCommandService.swift; sourceTree = "<group>"; };
+		3A2B387C2F3D5AFA00E744D7 /* MessageContentParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageContentParser.swift; sourceTree = "<group>"; };
 		3AE4CD552F34683C002EBE7F /* mac-claude-chat.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "mac-claude-chat.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		3AE4CD622F34683D002EBE7F /* mac-claude-chatTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "mac-claude-chatTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		3AE4CD6C2F34683D002EBE7F /* mac-claude-chatUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "mac-claude-chatUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -118,6 +120,7 @@
 				3A2B38112F3C421300E744D7 /* WebFetchService.swift */,
 				3A2B38132F3C4A9800E744D7 /* WebToolManagerView.swift */,
 				3A2B38322F3D379300E744D7 /* SlashCommandService.swift */,
+				3A2B387C2F3D5AFA00E744D7 /* MessageContentParser.swift */,
 			);
 			sourceTree = "<group>";
 		};
@@ -321,6 +324,7 @@
 				3A2B38122F3C421300E744D7 /* WebFetchService.swift in Sources */,
 				3A2B38332F3D379300E744D7 /* SlashCommandService.swift in Sources */,
 				3A2B38142F3C4A9800E744D7 /* WebToolManagerView.swift in Sources */,
+				3A2B387D2F3D5AFA00E744D7 /* MessageContentParser.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -14,33 +14,12 @@ struct MarkdownMessageView: View {
 
     /// Parsed weather data from embedded markers
     private var weatherData: [WeatherData] {
-        var results: [WeatherData] = []
-        let pattern = "<!--weather:(.+?)-->"
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
-            return results
-        }
-        let range = NSRange(content.startIndex..., in: content)
-        let matches = regex.matches(in: content, options: [], range: range)
-        for match in matches {
-            if let jsonRange = Range(match.range(at: 1), in: content) {
-                let jsonString = String(content[jsonRange])
-                if let jsonData = jsonString.data(using: .utf8),
-                   let data = try? JSONDecoder().decode(WeatherData.self, from: jsonData) {
-                    results.append(data)
-                }
-            }
-        }
-        return results
+        MessageContentParser.extractWeather(from: content)
     }
 
-    /// Content with markers stripped out
+    /// Content with weather markers stripped out
     private var cleanedContent: String {
-        let pattern = "<!--weather:.+?-->\\n?"
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
-            return content
-        }
-        let range = NSRange(content.startIndex..., in: content)
-        return regex.stringByReplacingMatches(in: content, options: [], range: range, withTemplate: "")
+        MessageContentParser.stripWeatherMarkers(content)
     }
 
     var body: some View {

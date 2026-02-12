@@ -123,22 +123,8 @@ enum RouterService {
     /// Parse and strip the <!--tip:...--> marker from a response string.
     /// Returns the cleaned response and the extracted tip (if any).
     static func extractTip(from response: String) -> (cleanedResponse: String, tip: String?) {
-        let pattern = "<!--tip:(.+?)-->"
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) else {
-            return (response, nil)
-        }
-
-        let range = NSRange(response.startIndex..., in: response)
-        guard let match = regex.firstMatch(in: response, options: [], range: range),
-              let tipRange = Range(match.range(at: 1), in: response) else {
-            return (response, nil)
-        }
-
-        let tip = String(response[tipRange]).trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleaned = regex.stringByReplacingMatches(in: response, options: [], range: range, withTemplate: "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        return (cleaned, tip)
+        let result = MessageContentParser.extractAndStripTip(from: response)
+        return (cleanedResponse: result.cleanedContent, tip: result.tip)
     }
 
     // MARK: - Private Helpers

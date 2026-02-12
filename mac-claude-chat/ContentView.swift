@@ -940,7 +940,7 @@ struct ContentView: View {
         // Build clean text
         var parts: [String] = []
         for msg in turnMessages.sorted(by: { $0.timestamp < $1.timestamp }) {
-            let cleaned = stripAllMarkers(from: msg.content)
+            let cleaned = MessageContentParser.stripAllMarkers(msg.content)
             let prefix = msg.role == .user ? "**Drew:**" : "**Claude:**"
             parts.append("\(prefix)\n\(cleaned)")
         }
@@ -1443,7 +1443,7 @@ struct ContentView: View {
 
         // Check for image markers in user messages
         if message.role == .user {
-            let (images, cleanText) = parseImageMarkers(from: message.content)
+            let (images, cleanText) = MessageContentParser.extractImagesAndCleanText(from: message.content)
 
             if !images.isEmpty {
                 // Past images: replace with lightweight placeholder to save tokens
@@ -1470,69 +1470,10 @@ struct ContentView: View {
 
         // For assistant messages or user messages without images, use simple string content
         // Strip any markers from assistant messages (weather, etc.) for the API
-        let cleanContent = stripAllMarkers(from: message.content)
+        let cleanContent = MessageContentParser.stripAllMarkers(message.content)
         return ["role": role, "content": cleanContent]
     }
 
-    /// Parse image markers from message content
-    /// Returns array of image data and the cleaned text content
-    private func parseImageMarkers(from content: String) -> (images: [(id: String, mediaType: String, base64Data: String)], cleanText: String) {
-        var images: [(id: String, mediaType: String, base64Data: String)] = []
-        var cleanContent = content
-
-        let pattern = "<!--image:(\\{.+?\\})-->"
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
-            return (images, content)
-        }
-
-        let range = NSRange(content.startIndex..., in: content)
-        let matches = regex.matches(in: content, options: [], range: range)
-
-        for match in matches {
-            if let jsonRange = Range(match.range(at: 1), in: content) {
-                let jsonString = String(content[jsonRange])
-                if let jsonData = jsonString.data(using: .utf8),
-                   let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: String],
-                   let id = json["id"],
-                   let mediaType = json["media_type"],
-                   let base64Data = json["data"] {
-                    images.append((id: id, mediaType: mediaType, base64Data: base64Data))
-                }
-            }
-        }
-
-        // Remove markers from content
-        cleanContent = regex.stringByReplacingMatches(in: content, options: [], range: range, withTemplate: "")
-        // Clean up any leading newlines from marker removal
-        cleanContent = cleanContent.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        return (images, cleanContent)
-    }
-
-    /// Strip all embedded markers (weather, image, etc.) from content
-    private func stripAllMarkers(from content: String) -> String {
-        var result = content
-
-        // Strip weather markers
-        if let regex = try? NSRegularExpression(pattern: "<!--weather:.+?-->\\n?", options: []) {
-            let range = NSRange(result.startIndex..., in: result)
-            result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: "")
-        }
-
-        // Strip image markers
-        if let regex = try? NSRegularExpression(pattern: "<!--image:\\{.+?\\}-->\\n?", options: []) {
-            let range = NSRange(result.startIndex..., in: result)
-            result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: "")
-        }
-
-        // Strip iceberg tip markers
-        if let regex = try? NSRegularExpression(pattern: "<!--tip:.+?-->\\n?", options: [.dotMatchesLineSeparators]) {
-            let range = NSRange(result.startIndex..., in: result)
-            result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: "")
-        }
-
-        return result.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
 }
 
 #Preview {

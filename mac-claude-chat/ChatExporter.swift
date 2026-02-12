@@ -78,21 +78,9 @@ enum ChatExporter {
         return lines.joined(separator: "\n")
     }
 
-    /// Strip all embedded markers (weather, image) from content
+    /// Strip all embedded markers from content
     private static func stripMarkers(from content: String) -> String {
-        var result = content
-
-        if let regex = try? NSRegularExpression(pattern: "<!--weather:.+?-->\\n?", options: []) {
-            let range = NSRange(result.startIndex..., in: result)
-            result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: "")
-        }
-
-        if let regex = try? NSRegularExpression(pattern: "<!--image:\\{.+?\\}-->\\n?", options: []) {
-            let range = NSRange(result.startIndex..., in: result)
-            result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: "")
-        }
-
-        return result.trimmingCharacters(in: .whitespacesAndNewlines)
+        MessageContentParser.stripAllMarkers(content)
     }
 }
 
