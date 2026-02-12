@@ -485,19 +485,10 @@ class ChatViewModel {
         guard let chatId = selectedChat else { return }
 
         do {
-            try dataService.deleteChat(chatId)
+            try dataService.clearMessages(forChat: chatId)
             messages = []
             totalInputTokens = 0
             totalOutputTokens = 0
-
-            let isDefault = chatId == "Scratch Pad"
-            try dataService.saveMetadata(
-                chatId: chatId,
-                inputTokens: 0,
-                outputTokens: 0,
-                isDefault: isDefault
-            )
-
             loadAllChats()
             errorMessage = nil
         } catch {
