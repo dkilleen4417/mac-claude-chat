@@ -1034,24 +1034,24 @@ struct ContentView: View {
         let markerPrefix = imageMarkers.isEmpty ? "" : imageMarkers.joined(separator: "\n") + "\n"
         let persistedContent = markerPrefix + trimmedText
 
-        // Capture pending images for API call before clearing
+        // Capture state snapshots before clearing
         let imagesToSend = pendingImages
-
-        // Generate a turnId for this conversation turn
+        let sendThreshold = contextThreshold
         let turnId = UUID().uuidString
+        let assistantMessageId = UUID()
 
         let userMessage = Message(
             role: .user,
             content: persistedContent,
             timestamp: Date(),
             turnId: turnId,
-            isFinalResponse: true  // User messages are always "final"
+            isFinalResponse: true
         )
 
+        // Apply pre-send state changes
         messages.append(userMessage)
 
         do {
-            // New messages always get grade 5 (default)
             try dataService.saveMessage(userMessage, chatId: chatId, turnId: turnId, isFinalResponse: true)
         } catch {
             print("Failed to save user message: \(error)")
@@ -1059,226 +1059,56 @@ struct ContentView: View {
 
         messageText = ""
         pendingImages = []
-        inputHeight = 36  // Reset input height
+        inputHeight = 36
         errorMessage = nil
-
-        let assistantMessageId = UUID()
         streamingMessageId = assistantMessageId
         streamingContent = ""
         toolActivityMessage = nil
         isLoading = true
 
-        // Capture threshold at send time for consistent filtering across tool loop
-        let sendThreshold = contextThreshold
-
         Task {
             do {
-                // --- Model Selection ---
-                let effectiveModel: ClaudeModel
-                let messageForAPI: String
-
-                switch parseResult {
-                case .builtIn(let command, let remainder) where command.isPassthrough:
-                    // Slash command model override — skip router
-                    effectiveModel = command.forcedModel ?? .fast
-                    messageForAPI = remainder.isEmpty ? trimmedText : remainder
-                    print("🤖 Slash command: /\(command.rawValue) → \(effectiveModel.displayName)")
-                default:
-                    // Normal two-tier routing
-                    let tips = RouterService.collectTips(from: messages)
-                    let classification = await RouterService.classify(
-                        userMessage: trimmedText,
-                        tips: tips,
-                        claudeService: claudeService
-                    )
-                    effectiveModel = classification.model
-                    messageForAPI = trimmedText
-                }
-
-                // Build API messages filtered by grade threshold
-                // Grade filtering happens here - messages with textGrade < threshold are excluded
-                let filteredMessages = await ContextFilteringService.getFilteredMessages(
-                    forChat: chatId,
+                let result = try await MessageSendingService.send(
+                    messageForAPI: trimmedText,
+                    imagesToSend: imagesToSend,
+                    turnId: turnId,
+                    assistantMessageId: assistantMessageId,
+                    chatId: chatId,
                     threshold: sendThreshold,
-                    excludingLast: true,
-                    dataService: dataService
-                )
-                var apiMessages: [[String: Any]] = filteredMessages.map { msg in
-                    ContextFilteringService.buildAPIMessage(from: msg)
-                }
-
-                // Build current user message with proper image handling
-                var currentMessageContent: [[String: Any]] = []
-
-                // Add image blocks first
-                for pending in imagesToSend {
-                    currentMessageContent.append([
-                        "type": "image",
-                        "source": [
-                            "type": "base64",
-                            "media_type": pending.mediaType,
-                            "data": pending.base64Data
-                        ]
-                    ])
-                }
-
-                // Add text block if there's text
-                if !messageForAPI.isEmpty {
-                    currentMessageContent.append([
-                        "type": "text",
-                        "text": messageForAPI
-                    ])
-                }
-
-                // Add current message to apiMessages
-                if currentMessageContent.isEmpty {
-                    // Shouldn't happen due to guard above, but fallback
-                    apiMessages.append(["role": "user", "content": messageForAPI])
-                } else if currentMessageContent.count == 1 && imagesToSend.isEmpty {
-                    // Text only - can use simple string format
-                    apiMessages.append(["role": "user", "content": messageForAPI])
-                } else {
-                    // Mixed content - use content blocks
-                    apiMessages.append(["role": "user", "content": currentMessageContent])
-                }
-
-                let tools = ToolService.toolDefinitions
-                var fullResponse = ""
-                var totalStreamInputTokens = 0
-                var totalStreamOutputTokens = 0
-                var iteration = 0
-                let maxIterations = 5
-                var collectedMarkers: [String] = []
-
-                while iteration < maxIterations {
-                    iteration += 1
-
-                    let result = try await claudeService.streamMessageWithTools(
-                        messages: apiMessages,
-                        model: effectiveModel,
-                        systemPrompt: systemPrompt,
-                        tools: tools,
+                    messages: messages,
+                    systemPrompt: systemPrompt,
+                    parseResult: parseResult,
+                    originalText: trimmedText,
+                    claudeService: claudeService,
+                    dataService: dataService,
+                    progress: MessageSendingService.ProgressCallbacks(
                         onTextChunk: { chunk in
                             streamingContent += chunk
-                            fullResponse += chunk
+                        },
+                        onToolActivity: { activity in
+                            toolActivityMessage = activity
                         }
                     )
-
-                    totalStreamInputTokens += result.inputTokens
-                    totalStreamOutputTokens += result.outputTokens
-
-                    if result.stopReason == "end_turn" || result.toolCalls.isEmpty {
-                        break
-                    }
-
-                    var assistantContent: [[String: Any]] = []
-                    if !result.textContent.isEmpty {
-                        assistantContent.append(["type": "text", "text": result.textContent])
-                    }
-                    for toolCall in result.toolCalls {
-                        assistantContent.append([
-                            "type": "tool_use",
-                            "id": toolCall.id,
-                            "name": toolCall.name,
-                            "input": toolCall.input
-                        ])
-                    }
-                    apiMessages.append(["role": "assistant", "content": assistantContent])
-
-                    var toolResults: [[String: Any]] = []
-                    for toolCall in result.toolCalls {
-                        let displayName: String
-                        switch toolCall.name {
-                        case "search_web":
-                            let query = toolCall.input["query"] as? String ?? ""
-                            displayName = "🔍 Searching: \(query)"
-                        case "get_weather":
-                            let location = toolCall.input["location"] as? String ?? "Catonsville"
-                            displayName = "🌤️ Getting weather for \(location)"
-                        case "get_datetime":
-                            displayName = "🕐 Checking date/time"
-                        case "web_lookup":
-                            let category = toolCall.input["category"] as? String ?? "search"
-                            let query = toolCall.input["query"] as? String ?? ""
-                            displayName = "🌐 Looking up \(category): \(query)"
-                        default:
-                            displayName = "🔧 Using \(toolCall.name)"
-                        }
-                        await MainActor.run {
-                            toolActivityMessage = displayName
-                        }
-
-                        // web_lookup needs SwiftData access for source resolution
-                        let toolResult: ToolResult
-                        if toolCall.name == "web_lookup" {
-                            toolResult = await ToolService.executeWebLookup(
-                                input: toolCall.input,
-                                dataService: dataService
-                            )
-                        } else {
-                            toolResult = await ToolService.executeTool(
-                                name: toolCall.name,
-                                input: toolCall.input
-                            )
-                        }
-                        // Send plain text to Claude
-                        toolResults.append([
-                            "type": "tool_result",
-                            "tool_use_id": toolCall.id,
-                            "content": toolResult.textForLLM
-                        ])
-                        // Collect any embedded markers for later
-                        if let marker = toolResult.embeddedMarker {
-                            collectedMarkers.append(marker)
-                        }
-                    }
-
-                    apiMessages.append(["role": "user", "content": toolResults])
-
-                    await MainActor.run {
-                        toolActivityMessage = nil
-                        if !fullResponse.isEmpty {
-                            streamingContent += "\n\n"
-                            fullResponse += "\n\n"
-                        }
-                    }
-                }
-
-                totalInputTokens += totalStreamInputTokens
-                totalOutputTokens += totalStreamOutputTokens
-
-                // Extract iceberg tip from response before saving
-                let (cleanedResponse, extractedTip) = RouterService.extractTip(from: fullResponse)
-
-                // Prepend any collected markers to the saved message content
-                let markerPrefix = collectedMarkers.isEmpty ? "" : collectedMarkers.joined(separator: "\n") + "\n"
-                let assistantMessage = Message(
-                    id: assistantMessageId,
-                    role: .assistant,
-                    content: markerPrefix + cleanedResponse,
-                    timestamp: Date(),
-                    turnId: turnId,
-                    isFinalResponse: true,  // This is the final response for this turn
-                    inputTokens: totalStreamInputTokens,
-                    outputTokens: totalStreamOutputTokens,
-                    icebergTip: extractedTip ?? "",
-                    modelUsed: effectiveModel.rawValue
                 )
 
-                messages.append(assistantMessage)
+                // Apply completion state
+                totalInputTokens += result.totalInputTokens
+                totalOutputTokens += result.totalOutputTokens
+                messages.append(result.assistantMessage)
                 streamingMessageId = nil
                 streamingContent = ""
-
-                // Log the iceberg tip if generated
-                if let tip = extractedTip {
-                    print("🏔️ Tip: \(tip)")
-                }
                 toolActivityMessage = nil
                 isLoading = false
 
-                // Assistant messages inherit grade from their turn's user message (default 5)
-                // Persist per-turn token counts for the audit view
-                try dataService.saveMessage(assistantMessage, chatId: chatId, turnId: turnId, isFinalResponse: true, inputTokens: totalStreamInputTokens, outputTokens: totalStreamOutputTokens)
+                // Persist
+                try dataService.saveMessage(
+                    result.assistantMessage,
+                    chatId: chatId,
+                    turnId: turnId,
+                    isFinalResponse: true,
+                    inputTokens: result.totalInputTokens,
+                    outputTokens: result.totalOutputTokens
+                )
 
                 let isDefault = chatId == "Scratch Pad"
                 try dataService.saveMetadata(
@@ -1305,22 +1135,9 @@ struct ContentView: View {
 
     /// Add image from raw data (from paste or file)
     private func addImageFromData(_ data: Data) {
-        guard let processed = ImageProcessor.process(data) else {
-            print("Failed to process image")
-            return
+        if let pending = ImageAttachmentManager.processForAttachment(data) {
+            pendingImages.append(pending)
         }
-
-        // Create thumbnail for preview (use original data if small enough, otherwise use processed)
-        let thumbnailData = data.count < 100_000 ? data : Data(base64Encoded: processed.base64Data) ?? data
-
-        let pending = PendingImage(
-            id: processed.id,
-            base64Data: processed.base64Data,
-            mediaType: processed.mediaType,
-            thumbnailData: thumbnailData
-        )
-
-        pendingImages.append(pending)
     }
 
     /// Remove a pending image by ID
@@ -1330,61 +1147,15 @@ struct ContentView: View {
 
     /// Handle drag and drop of images
     private func handleImageDrop(providers: [NSItemProvider]) {
-        for provider in providers {
-            // Try file URL first (most common for Finder drops)
-            if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-                _ = provider.loadObject(ofClass: URL.self) { url, error in
-                    guard let url = url else {
-                        print("Drop: Failed to load URL - \(error?.localizedDescription ?? "unknown")")
-                        return
-                    }
-
-                    // Check if it's an image file
-                    guard let typeIdentifier = try? url.resourceValues(forKeys: [.typeIdentifierKey]).typeIdentifier,
-                          let uti = UTType(typeIdentifier),
-                          uti.conforms(to: .image) else {
-                        print("Drop: Not an image file")
-                        return
-                    }
-
-                    // Read the image data
-                    guard let imageData = try? Data(contentsOf: url) else {
-                        print("Drop: Failed to read image data from \(url)")
-                        return
-                    }
-
-                    DispatchQueue.main.async {
-                        self.addImageFromData(imageData)
-                    }
-                }
-            }
-            // Fallback: try to load as raw image data
-            else if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
-                provider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, error in
-                    if let data = data {
-                        DispatchQueue.main.async {
-                            self.addImageFromData(data)
-                        }
-                    }
-                }
-            }
+        ImageAttachmentManager.processDropProviders(providers) { imageData in
+            addImageFromData(imageData)
         }
     }
 
     /// Handle file importer result
     private func handleFileImport(result: Result<[URL], Error>) {
-        switch result {
-        case .success(let urls):
-            for url in urls {
-                guard url.startAccessingSecurityScopedResource() else { continue }
-                defer { url.stopAccessingSecurityScopedResource() }
-
-                if let imageData = try? Data(contentsOf: url) {
-                    addImageFromData(imageData)
-                }
-            }
-        case .failure(let error):
-            print("File import error: \(error)")
+        ImageAttachmentManager.processFileImport(result) { imageData in
+            addImageFromData(imageData)
         }
     }
 

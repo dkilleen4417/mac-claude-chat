@@ -8,6 +8,8 @@
 
 /* Begin PBXBuildFile section */
 		3A2B38872F3D632300E744D7 /* ContextFilteringService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A2B38862F3D632300E744D7 /* ContextFilteringService.swift */; };
+		3A2B388B2F3D662D00E744D7 /* ImageAttachmentManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A2B388A2F3D662D00E744D7 /* ImageAttachmentManager.swift */; };
+		3A2B388F2F3D68FB00E744D7 /* MessageSendingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A2B388E2F3D68FB00E744D7 /* MessageSendingService.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -42,6 +44,8 @@
 /* Begin PBXFileReference section */
 		3A2B38192F3CB5BD00E744D7 /* Router​Eval */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "Router​Eval"; sourceTree = BUILT_PRODUCTS_DIR; };
 		3A2B38862F3D632300E744D7 /* ContextFilteringService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContextFilteringService.swift; sourceTree = "<group>"; };
+		3A2B388A2F3D662D00E744D7 /* ImageAttachmentManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageAttachmentManager.swift; sourceTree = "<group>"; };
+		3A2B388E2F3D68FB00E744D7 /* MessageSendingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageSendingService.swift; sourceTree = "<group>"; };
 		3AE4CD552F34683C002EBE7F /* mac-claude-chat.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "mac-claude-chat.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		3AE4CD622F34683D002EBE7F /* mac-claude-chatTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "mac-claude-chatTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		3AE4CD6C2F34683D002EBE7F /* mac-claude-chatUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "mac-claude-chatUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -112,6 +116,8 @@
 				3AE4CD802F34D087002EBE7F /* Frameworks */,
 				3AE4CD562F34683C002EBE7F /* Products */,
 				3A2B38862F3D632300E744D7 /* ContextFilteringService.swift */,
+				3A2B388A2F3D662D00E744D7 /* ImageAttachmentManager.swift */,
+				3A2B388E2F3D68FB00E744D7 /* MessageSendingService.swift */,
 			);
 			sourceTree = "<group>";
 		};
@@ -305,6 +311,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				3A2B388F2F3D68FB00E744D7 /* MessageSendingService.swift in Sources */,
+				3A2B388B2F3D662D00E744D7 /* ImageAttachmentManager.swift in Sources */,
 				3A2B38872F3D632300E744D7 /* ContextFilteringService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
