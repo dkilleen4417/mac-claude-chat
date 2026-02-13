@@ -64,6 +64,10 @@ enum MessageSendingService {
         progress: ProgressCallbacks
     ) async throws -> SendResult {
 
+        // --- Router overhead tracking ---
+        var routerInputTokens = 0
+        var routerOutputTokens = 0
+
         // --- Model Selection ---
         let effectiveModel: ClaudeModel
         let messageText: String
@@ -82,6 +86,8 @@ enum MessageSendingService {
             )
             effectiveModel = classification.model
             messageText = originalText
+            routerInputTokens = classification.inputTokens
+            routerOutputTokens = classification.outputTokens
         }
 
         // --- Build filtered conversation history ---
@@ -154,6 +160,11 @@ enum MessageSendingService {
         var fullResponse = ""
         var totalStreamInputTokens = 0
         var totalStreamOutputTokens = 0
+
+        // Seed with router overhead (Haiku classification call)
+        totalStreamInputTokens += routerInputTokens
+        totalStreamOutputTokens += routerOutputTokens
+
         var iteration = 0
         let maxIterations = 5
         var collectedMarkers: [String] = []
@@ -204,13 +215,18 @@ enum MessageSendingService {
             var toolResults: [[String: Any]] = []
             for toolCall in result.toolCalls {
                 let displayName = toolDisplayName(for: toolCall)
-                await progress.onToolActivity(displayName)
+                progress.onToolActivity(displayName)
 
                 let toolResult: ToolResult
                 if toolCall.name == "web_lookup" {
                     toolResult = await ToolService.executeWebLookup(
                         input: toolCall.input,
                         dataService: dataService
+                    )
+                } else if toolCall.name == "get_weather" {
+                    toolResult = await ToolService.executeWeather(
+                        input: toolCall.input,
+                        claudeService: claudeService
                     )
                 } else {
                     toolResult = await ToolService.executeTool(
@@ -225,6 +241,11 @@ enum MessageSendingService {
                     "content": toolResult.textForLLM
                 ])
 
+                // Accumulate overhead tokens from sub-agent calls
+                let overhead = toolResult.overheadTokens
+                totalStreamInputTokens += overhead.input
+                totalStreamOutputTokens += overhead.output
+
                 if let marker = toolResult.embeddedMarker {
                     collectedMarkers.append(marker)
                 }
@@ -232,11 +253,11 @@ enum MessageSendingService {
 
             apiMessages.append(["role": "user", "content": toolResults])
 
-            await progress.onToolActivity(nil)
+            progress.onToolActivity(nil)
 
             if !fullResponse.isEmpty {
                 fullResponse += "\n\n"
-                await progress.onTextChunk("\n\n")
+                progress.onTextChunk("\n\n")
             }
         }
 

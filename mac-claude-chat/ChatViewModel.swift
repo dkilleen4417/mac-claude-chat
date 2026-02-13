@@ -321,18 +321,11 @@ class ChatViewModel {
     }
 
     func loadChat(chatId: String) {
-        print("🔍 loadChat called: \(chatId), isClearing=\(isClearing)")
-        guard !isClearing else {
-            print("⚠️ loadChat skipped — isClearing is true")
-            return
-        }
+        guard !isClearing else { return }
 
         do {
-            print("🔍 About to loadMessages for: \(chatId)")
             let loadedMessages = try dataService.loadMessages(forChat: chatId)
-            print("🔍 Loaded \(loadedMessages.count) messages, \(loadedMessages.reduce(0) { $0 + $1.content.count }) chars total")
             messages = loadedMessages
-            print("🔍 messages assigned to state")
 
             if let metadata = try dataService.loadMetadata(forChat: chatId) {
                 totalInputTokens = metadata.totalInputTokens
@@ -344,10 +337,9 @@ class ChatViewModel {
 
             contextThreshold = dataService.getContextThreshold(forChat: chatId)
             errorMessage = nil
-            print("🔍 loadChat completed successfully for: \(chatId)")
         } catch {
             errorMessage = "Failed to load chat: \(error.localizedDescription)"
-            print("❌ Load Error: \(error)")
+            print("Load Error: \(error)")
         }
     }
 
@@ -566,7 +558,7 @@ class ChatViewModel {
                     predicate: #Predicate { $0.chatId == chatId }
                 )
                 guard let session = try backgroundContext.fetch(descriptor).first else {
-                    await MainActor.run { self?.isClearing = false }
+                    await MainActor.run { [weak self] in self?.isClearing = false }
                     return
                 }
 
@@ -589,7 +581,7 @@ class ChatViewModel {
                 print("❌ Background clear failed: \(error)")
             }
 
-            await MainActor.run { self?.isClearing = false }
+            await MainActor.run { [weak self] in self?.isClearing = false }
         }
     }
 

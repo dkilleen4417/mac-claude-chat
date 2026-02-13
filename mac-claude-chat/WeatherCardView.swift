@@ -73,16 +73,49 @@ struct WeatherCardView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // City name + observation time
+            // City name + datetime display
             VStack(alignment: .leading, spacing: 2) {
                 Text(data.city)
                     .font(.headline)
                     .foregroundStyle(.white)
 
-                if let obsTime = data.formattedObservationTime {
-                    Text("as of \(obsTime)")
+                if let obsTime = data.observationTime {
+                    let date = Date(timeIntervalSince1970: TimeInterval(obsTime))
+
+                    // Location's local time (uses timezoneOffset if available)
+                    let locationFormatter: DateFormatter = {
+                        let f = DateFormatter()
+                        f.dateFormat = "EEE h:mm a"
+                        if let offset = data.timezoneOffset {
+                            f.timeZone = TimeZone(secondsFromGMT: offset)
+                        } else {
+                            f.timeZone = TimeZone(identifier: "America/New_York")
+                        }
+                        return f
+                    }()
+
+                    // User's home time (Catonsville / Eastern)
+                    let homeFormatter: DateFormatter = {
+                        let f = DateFormatter()
+                        f.dateFormat = "EEE h:mm a"
+                        f.timeZone = TimeZone(identifier: "America/New_York")
+                        return f
+                    }()
+
+                    let locationTimeStr = locationFormatter.string(from: date)
+                    let homeTimeStr = homeFormatter.string(from: date)
+
+                    // Always show weather location time
+                    Text("\(locationTimeStr) \(data.city)")
                         .font(.caption)
                         .foregroundStyle(.white.opacity(0.7))
+
+                    // Show home time only if different timezone
+                    if locationTimeStr != homeTimeStr {
+                        Text("\(homeTimeStr) Catonsville")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.5))
+                    }
                 }
             }
 
