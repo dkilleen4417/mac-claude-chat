@@ -70,9 +70,26 @@ class ChatViewModel {
     // MARK: - System Prompt
 
     var systemPrompt: String {
+        // Load custom template from UserDefaults, or use default if not set
+        let storedTemplate = UserDefaults.standard.string(forKey: "systemPromptTemplate")
+        let basePrompt = storedTemplate ?? defaultSystemPrompt
+        
+        // If the prompt contains the web tools placeholder, inject it
+        if basePrompt.contains("\\(webToolsPromptSection)") {
+            return basePrompt.replacingOccurrences(
+                of: "\\(webToolsPromptSection)",
+                with: webToolsPromptSection
+            )
+        } else {
+            // No placeholder found, return as-is
+            return basePrompt
+        }
+    }
+    
+    /// Default system prompt template (matches SettingsView's default)
+    private var defaultSystemPrompt: String {
         """
-        You are Claude, an AI assistant in a natural conversation with Drew \
-        (Andrew Killeen), a retired engineer and programmer in Catonsville, Maryland.
+        You are Claude, an AI assistant in a natural conversation with Drew (Andrew Killeen), a retired engineer and programmer in Catonsville, Maryland.
 
         CONVERSATIONAL APPROACH:
         - This is a real conversation, not a series of isolated requests and responses.
@@ -91,31 +108,19 @@ class ChatViewModel {
         - get_datetime: Get current date and time (Eastern timezone)
         - search_web: Search the web for current information (news, sports, events, research)
         - get_weather: Get current weather (defaults to Catonsville, Maryland)
-        - web_lookup: Look up information from curated web sources (see WEB TOOLS below)
+        - web_lookup: Look up information from curated web sources
         Don't deflect with "I don't have real-time data" — search for it.
         IMPORTANT: Use all tools silently. Never announce that you are checking the date, time, weather, or searching. Just do it and weave the results into your response naturally.
         You can call multiple tools in a single response when needed.
         For weather queries with no specific location, default to Drew's location.
 
-        WEB TOOLS:
-        You have access to curated web sources via the web_lookup tool.
-        \(webToolsPromptSection)
-        When a user asks about a topic matching a web tool category, consider using
-        web_lookup with that category. The tool will try curated sources first and
-        fall back to general web search if they fail.
-
         TEMPORAL REFERENCES:
-        When the user mentions any relative time ("last Sunday", "this week", \
-        "yesterday", "recently", "the latest"), ALWAYS call get_datetime first \
-        to anchor your reasoning to the actual current date before proceeding.
+        When the user mentions any relative time ("last Sunday", "this week", "yesterday", "recently", "the latest"), ALWAYS call get_datetime first to anchor your reasoning to the actual current date before proceeding.
         Never assume you know today's date — always verify with the tool.
         Use tools silently — don't announce that you're checking the date, time, or weather. Just do it and incorporate the results naturally.
 
         ICEBERG TIP:
-        At the very end of every response, append a one-line summary of this exchange \
-        wrapped in an HTML comment marker. This summary captures the essence of what \
-        was discussed or accomplished in this turn — it will be used for conversation \
-        context in future turns. Format:
+        At the very end of every response, append a one-line summary of this exchange wrapped in an HTML comment marker. This summary captures the essence of what was discussed or accomplished in this turn — it will be used for conversation context in future turns. Format:
         <!--tip:Brief summary of what was discussed or accomplished-->
         Keep tips under 20 words. Examples:
         <!--tip:Greeted user, casual check-in-->

@@ -12,7 +12,7 @@ literally — don't interpret, don't improve, don't add what wasn't asked for.
 
 - **Build after every operation** (⌘B). Stop on failure.
 - **Don't fix build errors by modifying code.** Report the error and stop.
-- **Revert failed operations** with the git command provided in the directive.
+- **Don't auto-rollback.** If a build fails, report the error and stop. Recommend a rollback if appropriate, but let the user decide.
 
 ---
 
@@ -36,53 +36,55 @@ literally — don't interpret, don't improve, don't add what wasn't asked for.
 
 ---
 
-## File Map (31 Swift files)
+## File Map (33 Swift files, ~280 KB total)
 
 ```
 mac-claude-chat/
 │
 │   ── Core ──
-├── mac_claude_chatApp.swift          (~55)   @main, WindowGroup, menu commands
-├── ContentView.swift                (~350)   Pure view composition, observes ChatViewModel
-├── ChatViewModel.swift              (~390)   All chat state + intent methods, system prompt
-├── Models.swift                     (~310)   SwiftData models, ClaudeModel enum, RouterResponse,
-│                                             WebToolCategory, WebToolSource, in-memory types
+├── mac_claude_chatApp.swift           (1.9 KB)  @main, WindowGroup, menu commands
+├── ContentView.swift                 (23.1 KB)  Pure view composition, observes ChatViewModel
+├── ChatViewModel.swift               (27.2 KB)  All chat state + intent methods, system prompt
+├── Models.swift                      (10.1 KB)  SwiftData models, ClaudeModel enum, RouterResponse,
+│                                                WebToolCategory, WebToolSource, in-memory types
 │
 │   ── Services ──
-├── ClaudeService.swift              (~380)   Streaming + singleShot HTTP to Anthropic API
-├── RouterService.swift              (~180)   Haiku classifier, tip extraction, escalation logic
-├── ToolService.swift                (~420)   Tool definitions, dispatch, WeatherData, web_lookup
-├── SwiftDataService.swift           (~480)   Chat/message CRUD, context mgmt, web tools CRUD,
-│                                             CloudKit dedup, turn ID backfill, default seeding
-├── KeychainService.swift            (~130)   API key storage + env fallback (Anthropic, Tavily, OWM)
-├── MessageSendingService.swift      (~210)   Send orchestration: route → filter → stream → tool loop
-├── ContextFilteringService.swift    (~100)   Grade-based message filtering + API payload formatting
-├── SlashCommandService.swift         (~95)   /command parsing (model overrides + local commands)
-├── MessageContentParser.swift       (~170)   Single source of truth for marker parsing/stripping
-├── ImageAttachmentManager.swift     (~105)   Image paste, drag/drop, file import processing
-├── WebFetchService.swift            (~210)   HTTP fetch, HTML-to-text, URL resolution, fallback chains
+├── ClaudeService.swift               (14.3 KB)  Streaming + singleShot HTTP to Anthropic API
+├── RouterService.swift                (7.4 KB)  Haiku classifier, tip extraction, escalation logic
+├── ToolService.swift                 (23.2 KB)  Tool definitions, dispatch, WeatherData,
+│                                                Tavily+Haiku weather extraction, web_lookup
+├── SwiftDataService.swift            (24.2 KB)  Chat/message CRUD, context mgmt, web tools CRUD,
+│                                                CloudKit dedup, turn ID backfill, default seeding
+├── KeychainService.swift              (3.6 KB)  API key storage + env fallback (Anthropic, Tavily, OWM)
+├── MessageSendingService.swift       (12.0 KB)  Send orchestration: route → filter → stream → tool loop
+├── ContextFilteringService.swift      (5.1 KB)  Grade-based message filtering + API payload formatting
+├── SlashCommandService.swift          (3.0 KB)  /command parsing (model overrides + local commands)
+├── MessageContentParser.swift         (7.3 KB)  Single source of truth for marker parsing/stripping
+├── ImageAttachmentManager.swift       (4.5 KB)  Image paste, drag/drop, file import processing
+├── WebFetchService.swift              (9.9 KB)  HTTP fetch, HTML-to-text, URL resolution, fallback chains
 │
 │   ── Message Rendering ──
-├── MessageBubble.swift              (~160)   Message row + hover grade controls + dimming + metadata
-├── MarkdownMessageView.swift        (~170)   Markdown parsing, weather cards, code block dispatch
-├── CodeBlockView.swift              (~150)   Fenced code + line numbers + copy button
-├── SyntaxHighlighter.swift          (~380)   Regex tokenizer, Dracula palette
-├── WeatherCardView.swift            (~165)   Gradient weather card with hourly forecast
-├── UserMessageContent.swift          (~50)   User message with images + text
-├── MessageImageView.swift            (~60)   Base64 image with expand/collapse
-├── GradeControl.swift                (~40)   0-5 dot grade picker
-├── PendingImageThumbnail.swift       (~47)   Pre-send image preview
+├── MessageBubble.swift                (8.4 KB)  Message row + hover grade controls + dimming + metadata
+├── MarkdownMessageView.swift          (5.6 KB)  Markdown parsing, weather cards, code block dispatch
+├── CodeBlockView.swift                (5.3 KB)  Fenced code + line numbers + copy button
+├── SyntaxHighlighter.swift           (16.3 KB)  Regex tokenizer, Dracula palette
+├── WeatherCardView.swift              (8.5 KB)  Gradient weather card with hourly forecast,
+│                                                dual city-labeled datetime display
+├── UserMessageContent.swift           (1.6 KB)  User message with images + text
+├── MessageImageView.swift             (1.8 KB)  Base64 image with expand/collapse
+├── GradeControl.swift                 (1.0 KB)  0-5 dot grade picker
+├── PendingImageThumbnail.swift        (1.4 KB)  Pre-send image preview
 │
 │   ── Utilities ──
-├── ImageProcessor.swift             (~125)   Image downscale/encode + PendingImage
-├── PlatformUtilities.swift           (~37)   PlatformColor, InputHeightPreferenceKey
-├── SpellCheckingTextEditor.swift    (~235)   macOS NSTextView + paste interception + text file drop
+├── ImageProcessor.swift               (4.1 KB)  Image downscale/encode + PendingImage
+├── PlatformUtilities.swift            (0.8 KB)  PlatformColor, InputHeightPreferenceKey
+├── SpellCheckingTextEditor.swift     (10.7 KB)  macOS NSTextView + paste interception + text file drop
 │
 │   ── Other Views ──
-├── APIKeySetupView.swift            (~185)   Settings sheet for API keys
-├── TokenAuditView.swift             (~240)   Per-turn token breakdown sheet
-├── ChatExporter.swift               (~100)   Selective markdown export + MarkdownFileDocument
-├── WebToolManagerView.swift         (~380)   Web tool category/source manager with test-in-place
+├── APIKeySetupView.swift              (6.1 KB)  Settings sheet for API keys
+├── TokenAuditView.swift               (9.8 KB)  Per-turn token breakdown sheet
+├── ChatExporter.swift                 (3.3 KB)  Selective markdown export + MarkdownFileDocument
+├── WebToolManagerView.swift          (18.0 KB)  Web tool category/source manager with test-in-place
 
 Entitlements:
 ├── mac-claude-chat.entitlements              Active (CloudKit, keychain, user-selected r/w)
@@ -106,7 +108,7 @@ Entitlements:
 
 ### Phase 2 Decomposition (Complete)
 
-ContentView is a thin view layer (~350 lines) that observes ChatViewModel.
+ContentView is a thin view layer that observes ChatViewModel.
 All state and business logic lives in ChatViewModel and extracted services:
 
 - **ChatViewModel** — owns all mutable state, coordinates services, builds
@@ -140,6 +142,35 @@ All state and business logic lives in ChatViewModel and extracted services:
 - **Per-message model tracking:** `ChatMessage.modelUsed` stores the model's
   raw enum value. Cost calculation sums actual per-message costs.
 
+### Prompt Caching
+
+Two cache breakpoints implemented:
+1. **System prompt** — content block array with `cache_control: ephemeral`.
+   Beta header `prompt-caching-2024-07-31` included.
+2. **Last history message** — conversation history prefix cached via
+   `cache_control` on the last message before the current turn.
+
+Cache metrics logged: `[CACHE] 💾 {read} read, {written} written`.
+First call pays 1.25x write; subsequent reads at 0.1x (90% discount).
+Cache invalidates naturally when messages change.
+
+### Weather Tool (Tavily + Haiku Extraction)
+
+- **Data source:** Tavily web search replaces OpenWeatherMap. No OWM dependency.
+- **Extraction pipeline:** Tavily fetches weather text → Haiku `singleShot`
+  extracts structured JSON (city, temp, conditions, hourly, timezone offset)
+  → parsed into `WeatherData` struct → rendered by `WeatherCardView`.
+- **Hourly forecast:** Extracted when Tavily's source includes hourly data.
+  Card gracefully hides the hourly strip when empty.
+- **Datetime display:** Weather card shows dual city-labeled times.
+  Same timezone = one line (e.g., "Wed 4:30 PM Catonsville").
+  Different timezone = two lines (e.g., "Wed 2:30 PM Boise" /
+  "Wed 4:30 PM Catonsville").
+- **Markdown fence stripping:** Haiku JSON responses cleaned of backtick
+  wrappers before parsing.
+- **ToolResult.overheadTokens:** Weather extraction reports Haiku token
+  consumption via associated values on `.weather` case.
+
 ### Web Tools
 
 - **WebToolCategory + WebToolSource** — SwiftData models for user-configurable
@@ -163,8 +194,26 @@ All state and business logic lives in ChatViewModel and extracted services:
 
 ---
 
+## Known Issues / Pending Work
+
+- **Overhead token pricing:** Router and weather extraction overhead tokens
+  are currently folded into `totalStreamInputTokens` / `totalStreamOutputTokens`
+  in `MessageSendingService.send()`. They are priced at the primary model's
+  rate (Sonnet/Opus), which overstates cost ~3x. Directive
+  `directive-overhead-tokens-v2.md` adds separate `overheadInputTokens` /
+  `overheadOutputTokens` fields to `ChatMessage` and `Message`, priced at
+  Haiku rate in `calculateCost()`. Not yet applied.
+- **Weather extraction model:** `executeWeather()` in `ToolService.swift`
+  calls `singleShot` with `model: .fast` (Sonnet). Should be `model: .turbo`
+  (Haiku) — this is a data extraction task, not a reasoning task. Fix when
+  applying the overhead tokens directive.
+- **Duplicate comment:** `ToolResult` enum has two identical doc comments
+  (lines ~81-82 in ToolService.swift). Remove the duplicate.
+
+---
+
 ## Schema
 
-- **Current version:** `AppConfig.buildVersion = 7`
+- **Current version:** `AppConfig.buildVersion = 8`
 - **Models:** ChatSession, ChatMessage, WebToolCategory, WebToolSource
 - **CloudKit container:** iCloud.JCC.mac-claude-chat

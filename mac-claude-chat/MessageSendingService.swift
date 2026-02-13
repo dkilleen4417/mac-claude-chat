@@ -8,6 +8,7 @@
 //
 
 import Foundation
+import SwiftUI
 
 enum MessageSendingService {
 
@@ -78,16 +79,32 @@ enum MessageSendingService {
             messageText = remainder.isEmpty ? originalText : remainder
             print("🤖 Slash command: /\(command.rawValue) → \(effectiveModel.displayName)")
         default:
-            let tips = RouterService.collectTips(from: messages)
-            let classification = await RouterService.classify(
-                userMessage: originalText,
-                tips: tips,
-                claudeService: claudeService
-            )
-            effectiveModel = classification.model
-            messageText = originalText
-            routerInputTokens = classification.inputTokens
-            routerOutputTokens = classification.outputTokens
+            // Check router settings from AppStorage
+            let routerEnabled = UserDefaults.standard.bool(forKey: "routerEnabled")
+            let storedModel = UserDefaults.standard.string(forKey: "fixedModel")
+            
+            // Default to router enabled if key doesn't exist (first launch)
+            let shouldUseRouter = UserDefaults.standard.object(forKey: "routerEnabled") == nil || routerEnabled
+            
+            if shouldUseRouter {
+                // Router enabled: classify message
+                let tips = RouterService.collectTips(from: messages)
+                let classification = await RouterService.classify(
+                    userMessage: originalText,
+                    tips: tips,
+                    claudeService: claudeService
+                )
+                effectiveModel = classification.model
+                messageText = originalText
+                routerInputTokens = classification.inputTokens
+                routerOutputTokens = classification.outputTokens
+                print("🤖 Router: \(effectiveModel.displayName) (confidence: \(classification.response.confidence))")
+            } else {
+                // Router disabled: use fixed model
+                effectiveModel = ClaudeModel(rawValue: storedModel ?? ClaudeModel.fast.rawValue) ?? .fast
+                messageText = originalText
+                print("🤖 Fixed model: \(effectiveModel.displayName)")
+            }
         }
 
         // --- Build filtered conversation history ---

@@ -9,6 +9,7 @@ import SwiftUI
 
 struct APIKeySetupView: View {
     @Binding var isPresented: Bool
+    @AppStorage("appearanceMode") private var appearanceMode: String = AppearanceMode.system.rawValue
     @State private var apiKey: String = ""
     @State private var tavilyKey: String = ""
     @State private var owmKey: String = ""
@@ -84,6 +85,25 @@ struct APIKeySetupView: View {
                         .textFieldStyle(.roundedBorder)
                         .font(.system(.body, design: .monospaced))
                 }
+            }
+            .frame(maxWidth: 400)
+
+            Divider()
+                .frame(maxWidth: 400)
+
+            // Appearance Settings
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Appearance")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+
+                Picker("", selection: $appearanceMode) {
+                    ForEach(AppearanceMode.allCases) { mode in
+                        Text(mode.rawValue).tag(mode.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
             }
             .frame(maxWidth: 400)
 

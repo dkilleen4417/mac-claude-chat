@@ -14,6 +14,10 @@ import SwiftData
 class SwiftDataService {
     private let modelContext: ModelContext
     
+    var modelContainer: ModelContainer {
+        modelContext.container
+    }
+    
     init(modelContext: ModelContext) {
         self.modelContext = modelContext
     }
@@ -321,22 +325,22 @@ class SwiftDataService {
         try modelContext.save()
     }
     
-    /// Clears all messages from a chat session without deleting the session itself.
-    /// Resets token counts and updates the timestamp.
     func clearMessages(forChat chatId: String) throws {
+        let backgroundContext = ModelContext(modelContainer)
         let descriptor = FetchDescriptor<ChatSession>(
             predicate: #Predicate { $0.chatId == chatId }
         )
-        guard let session = try modelContext.fetch(descriptor).first else { return }
-        
-        for message in session.safeMessages {
-            modelContext.delete(message)
+        guard let session = try backgroundContext.fetch(descriptor).first else { return }
+
+        let messagesToDelete = Array(session.safeMessages)
+        for message in messagesToDelete {
+            backgroundContext.delete(message)
         }
-        session.messages = []
+
         session.totalInputTokens = 0
         session.totalOutputTokens = 0
         session.lastUpdated = Date()
-        try modelContext.save()
+        try backgroundContext.save()
     }
     
     // MARK: - Turn ID Migration

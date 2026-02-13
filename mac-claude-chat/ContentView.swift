@@ -17,6 +17,7 @@ import AppKit
 struct ContentView: View {
     @State private var viewModel = ChatViewModel()
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         NavigationSplitView {
@@ -89,37 +90,27 @@ struct ContentView: View {
                 viewModel.deleteChat(chat)
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .showAPIKeySettings)) { _ in
-            viewModel.showingAPIKeySetup = true
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .showWebToolManager)) { _ in
-            viewModel.showingWebToolManager = true
-        }
+
+
         .onReceive(NotificationCenter.default.publisher(for: .publishChat)) { _ in
             if let chatId = viewModel.selectedChat {
                 viewModel.publishChat(chatId: chatId)
             }
         }
-        .sheet(isPresented: $viewModel.showingWebToolManager) {
-            WebToolManagerView()
-        }
-        .sheet(isPresented: $viewModel.showingAPIKeySetup) {
-            APIKeySetupView(isPresented: $viewModel.showingAPIKeySetup) {
-                viewModel.needsAPIKey = false
-            }
-        }
-        .sheet(isPresented: $viewModel.needsAPIKey) {
-            APIKeySetupView(isPresented: $viewModel.needsAPIKey) {
-                viewModel.needsAPIKey = false
-            }
-            .interactiveDismissDisabled(true)
-        }
+
+
         .sheet(isPresented: $viewModel.showingTokenAudit) {
             TokenAuditView(messages: viewModel.messages, model: viewModel.selectedModel)
         }
         .task {
             if !viewModel.claudeService.hasAPIKey {
                 viewModel.needsAPIKey = true
+                #if os(macOS)
+                // Open Settings window if API key is missing
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    openSettings()
+                }
+                #endif
             }
         }
     }

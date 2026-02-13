@@ -10,12 +10,21 @@ import SwiftData
 
 @main
 struct mac_claude_chatApp: App {
+    @AppStorage("appearanceMode") private var appearanceMode: String = AppearanceMode.system.rawValue
+    
     var body: some Scene {
         WindowGroup(" ") {
             ContentView()
+                .preferredColorScheme(AppearanceMode(rawValue: appearanceMode)?.colorScheme)
         }
         .modelContainer(for: [ChatSession.self, ChatMessage.self, WebToolCategory.self, WebToolSource.self])
+        
         #if os(macOS)
+        Settings {
+            SettingsView()
+        }
+        .modelContainer(for: [ChatSession.self, ChatMessage.self, WebToolCategory.self, WebToolSource.self])
+        
         .commands {
             CommandGroup(replacing: .newItem) {
                 Button("New Chat") {
@@ -46,16 +55,7 @@ struct mac_claude_chatApp: App {
             }
             
 
-            CommandGroup(after: .appSettings) {
-                Button("API Key Settings...") {
-                    NotificationCenter.default.post(name: .showAPIKeySettings, object: nil)
-                }
-                .keyboardShortcut(",", modifiers: .command)
 
-                Button("Web Tools\u{2026}") {
-                    NotificationCenter.default.post(name: .showWebToolManager, object: nil)
-                }
-            }
         }
         #endif
     }

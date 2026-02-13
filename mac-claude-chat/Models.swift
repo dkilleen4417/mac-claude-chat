@@ -10,6 +10,7 @@
 //
 
 import Foundation
+import SwiftUI
 import SwiftData
 
 // MARK: - App Configuration
@@ -330,6 +331,24 @@ enum ClaudeModel: String, CaseIterable, Identifiable {
 struct RouterResponse {
     let tier: ClaudeModel
     let confidence: Double
+}
+
+// MARK: - Appearance Preference
+
+enum AppearanceMode: String, CaseIterable, Identifiable {
+    case system = "System"
+    case light = "Light"
+    case dark = "Dark"
+    
+    var id: String { rawValue }
+    
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: return nil
+        case .light: return .light
+        case .dark: return .dark
+        }
+    }
 }
 
 // MARK: - Notification Names
