@@ -97,7 +97,12 @@ struct ContentView: View {
                 viewModel.publishChat(chatId: chatId)
             }
         }
-
+        .onReceive(NotificationCenter.default.publisher(for: .showWebToolManager)) { _ in
+            viewModel.showingWebToolManager = true
+        }
+        .sheet(isPresented: $viewModel.showingWebToolManager) {
+            WebToolManagerView()
+        }
 
         .sheet(isPresented: $viewModel.showingTokenAudit) {
             TokenAuditView(messages: viewModel.messages, model: viewModel.selectedModel)

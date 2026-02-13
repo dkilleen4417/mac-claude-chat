@@ -54,7 +54,11 @@ struct mac_claude_chatApp: App {
                 .keyboardShortcut("e", modifiers: .command)
             }
             
-
+            CommandGroup(after: .appSettings) {
+                Button("Web Tools\u{2026}") {
+                    NotificationCenter.default.post(name: .showWebToolManager, object: nil)
+                }
+            }
 
         }
         #endif

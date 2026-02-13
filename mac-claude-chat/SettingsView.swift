@@ -8,8 +8,10 @@
 import SwiftUI
 
 struct SettingsView: View {
+    @State private var selectedTab: Int = 0
+    
     var body: some View {
-        TabView {
+        TabView(selection: $selectedTab) {
             GeneralSettingsTab()
                 .tabItem {
                     Label("General", systemImage: "gear")
@@ -27,14 +29,8 @@ struct SettingsView: View {
                     Label("System Prompt", systemImage: "doc.text")
                 }
                 .tag(2)
-            
-            WebToolsTab()
-                .tabItem {
-                    Label("Web Tools", systemImage: "globe")
-                }
-                .tag(3)
         }
-        .frame(width: 750, height: 550)
+        .frame(width: 650, height: 500)
     }
 }
 
@@ -413,18 +409,6 @@ struct SystemPromptTab: View {
         } message: {
             Text("This will reset the system prompt to its default value. Your custom prompt will be lost.")
         }
-    }
-}
-
-// MARK: - Web Tools Tab
-
-struct WebToolsTab: View {
-    @Environment(\.modelContext) private var modelContext
-    
-    var body: some View {
-        // Embed the existing WebToolManagerView
-        WebToolManagerView()
-            .environment(\.modelContext, modelContext)
     }
 }
 

@@ -43,14 +43,14 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		3A2B38192F3CB5BD00E744D7 /* Router​Eval */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "Router​Eval"; sourceTree = BUILT_PRODUCTS_DIR; };
+		3A2B38192F3CB5BD00E744D7 /* Router​Eval */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; name = "Router​Eval"; path = "Claude Chat"; sourceTree = BUILT_PRODUCTS_DIR; };
 		3A2B38862F3D632300E744D7 /* ContextFilteringService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContextFilteringService.swift; sourceTree = "<group>"; };
 		3A2B388A2F3D662D00E744D7 /* ImageAttachmentManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageAttachmentManager.swift; sourceTree = "<group>"; };
 		3A2B388E2F3D68FB00E744D7 /* MessageSendingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageSendingService.swift; sourceTree = "<group>"; };
 		3A2B38922F3D9C5600E744D7 /* ChatViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatViewModel.swift; sourceTree = "<group>"; };
-		3AE4CD552F34683C002EBE7F /* mac-claude-chat.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "mac-claude-chat.app"; sourceTree = BUILT_PRODUCTS_DIR; };
-		3AE4CD622F34683D002EBE7F /* mac-claude-chatTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "mac-claude-chatTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
-		3AE4CD6C2F34683D002EBE7F /* mac-claude-chatUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "mac-claude-chatUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		3AE4CD552F34683C002EBE7F /* mac-claude-chat.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = "mac-claude-chat.app"; path = "Claude Chat.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		3AE4CD622F34683D002EBE7F /* mac-claude-chatTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; name = "mac-claude-chatTests.xctest"; path = "Claude Chat.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		3AE4CD6C2F34683D002EBE7F /* mac-claude-chatUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; name = "mac-claude-chatUITests.xctest"; path = "Claude Chat.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -364,7 +364,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = N4LNUFU7CU;
 				ENABLE_HARDENED_RUNTIME = YES;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = "Claude Chat";
 				SDKROOT = macosx;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
@@ -378,7 +378,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = N4LNUFU7CU;
 				ENABLE_HARDENED_RUNTIME = YES;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = "Claude Chat";
 				SDKROOT = macosx;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
@@ -534,6 +534,8 @@
 				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Claude Chat";
+				INFOPLIST_KEY_CFBundleName = "Claude Chat";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -546,7 +548,7 @@
 				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "JCC.mac-claude-chat";
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = "Claude Chat";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -587,6 +589,8 @@
 				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Claude Chat";
+				INFOPLIST_KEY_CFBundleName = "Claude Chat";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -599,7 +603,7 @@
 				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "JCC.mac-claude-chat";
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = "Claude Chat";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -625,7 +629,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 26.2;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "JCC.mac-claude-chatTests";
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = "Claude Chat";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -646,7 +650,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 26.2;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "JCC.mac-claude-chatTests";
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = "Claude Chat";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -665,7 +669,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "JCC.mac-claude-chatUITests";
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = "Claude Chat";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -684,7 +688,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "JCC.mac-claude-chatUITests";
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = "Claude Chat";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;

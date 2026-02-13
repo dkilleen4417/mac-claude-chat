@@ -16,7 +16,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "3AE4CD542F34683C002EBE7F"
-               BuildableName = "mac-claude-chat.app"
+               BuildableName = "Claude Chat.app"
                BlueprintName = "mac-claude-chat"
                ReferencedContainer = "container:mac-claude-chat.xcodeproj">
             </BuildableReference>
@@ -36,7 +36,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "3AE4CD612F34683D002EBE7F"
-               BuildableName = "mac-claude-chatTests.xctest"
+               BuildableName = "Claude Chat.xctest"
                BlueprintName = "mac-claude-chatTests"
                ReferencedContainer = "container:mac-claude-chat.xcodeproj">
             </BuildableReference>
@@ -47,7 +47,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "3AE4CD6B2F34683D002EBE7F"
-               BuildableName = "mac-claude-chatUITests.xctest"
+               BuildableName = "Claude Chat.xctest"
                BlueprintName = "mac-claude-chatUITests"
                ReferencedContainer = "container:mac-claude-chat.xcodeproj">
             </BuildableReference>
@@ -69,7 +69,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "3AE4CD542F34683C002EBE7F"
-            BuildableName = "mac-claude-chat.app"
+            BuildableName = "Claude Chat.app"
             BlueprintName = "mac-claude-chat"
             ReferencedContainer = "container:mac-claude-chat.xcodeproj">
          </BuildableReference>
@@ -86,7 +86,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "3AE4CD542F34683C002EBE7F"
-            BuildableName = "mac-claude-chat.app"
+            BuildableName = "Claude Chat.app"
             BlueprintName = "mac-claude-chat"
             ReferencedContainer = "container:mac-claude-chat.xcodeproj">
          </BuildableReference>
