@@ -36,7 +36,7 @@ literally — don't interpret, don't improve, don't add what wasn't asked for.
 
 ---
 
-## File Map (33 Swift files, ~280 KB total)
+## File Map (34 Swift files, ~280 KB total)
 
 ```
 mac-claude-chat/
@@ -44,15 +44,22 @@ mac-claude-chat/
 │   ── Core ──
 ├── mac_claude_chatApp.swift           (1.9 KB)  @main, WindowGroup, menu commands
 ├── ContentView.swift                 (23.1 KB)  Pure view composition, observes ChatViewModel
-├── ChatViewModel.swift               (27.2 KB)  All chat state + intent methods, system prompt
-├── Models.swift                      (10.1 KB)  SwiftData models, ClaudeModel enum, RouterResponse,
-│                                                WebToolCategory, WebToolSource, in-memory types
+├── ChatViewModel.swift               (27.5 KB)  All chat state + intent methods, system prompt
+├── Models.swift                      (12.7 KB)  SwiftData models, ClaudeModel enum, RouterResponse,
+│                                                WebToolCategory, WebToolSource, in-memory types,
+│                                                provider configuration documentation
 │
-│   ── Services ──
-├── ClaudeService.swift               (14.3 KB)  Streaming + singleShot HTTP to Anthropic API
+│   ── Services (Provider-Coupled) ──
+├── ClaudeService.swift               (14.5 KB)  Streaming + singleShot HTTP to Anthropic API
+│                                                PROVIDER-SPECIFIC: rewrite for xAI fork
+├── ExtractionService.swift            (1.7 KB)  LLM-based JSON extraction abstraction
+│                                                PROVIDER-SPECIFIC: ~10 lines change for xAI fork
+│
+│   ── Services (Provider-Agnostic) ──
 ├── RouterService.swift                (7.4 KB)  Haiku classifier, tip extraction, escalation logic
-├── ToolService.swift                 (23.2 KB)  Tool definitions, dispatch, WeatherData,
-│                                                Tavily+Haiku weather extraction, web_lookup
+├── ToolService.swift                 (25.4 KB)  Provider-agnostic tool schemas, tool dispatch,
+│                                                WeatherData, Tavily+Haiku weather extraction, web_lookup
+│                                                Claude format converter (buildClaudeInputSchema)
 ├── SwiftDataService.swift            (24.2 KB)  Chat/message CRUD, context mgmt, web tools CRUD,
 │                                                CloudKit dedup, turn ID backfill, default seeding
 ├── KeychainService.swift              (3.6 KB)  API key storage + env fallback (Anthropic, Tavily, OWM)
@@ -117,6 +124,9 @@ All state and business logic lives in ChatViewModel and extracted services:
   static `send()` call with progress callbacks. No UI state ownership.
 - **ContextFilteringService** — grade-based turn filtering and API payload
   formatting. Pure data transformation, no UI dependencies.
+- **ExtractionService** — abstracts LLM-based JSON extraction from unstructured
+  text. Provider-coupled (~10 lines change for xAI fork). Fixes weather
+  extraction bug (Sonnet → Haiku = 3x cost savings).
 - **SlashCommandService** — parses `/command` prefixes. Model overrides
   (`/opus`, `/sonnet`, `/haiku`) are passthrough; local commands (`/help`,
   `/cost`, `/clear`, `/export`) execute immediately without API calls.

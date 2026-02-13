@@ -125,86 +125,156 @@ struct StreamResult {
     let cacheReadTokens: Int
 }
 
+// MARK: - Tool Schema Definitions (Provider-Agnostic)
+
+/// Neutral tool schema definition — describes a tool independent of provider format.
+/// For xAI fork: use same schemas, change only buildClaudeInputSchema() to buildOpenAIParameters().
+private struct ToolSchema {
+    let name: String
+    let description: String
+    let parameters: [ParameterSchema]
+    
+    struct ParameterSchema {
+        let name: String
+        let type: String  // "string", "object", etc.
+        let description: String
+        let required: Bool
+        let additionalProperties: [String: String]?  // For "object" type with dynamic keys
+        
+        init(name: String, type: String, description: String, required: Bool, additionalProperties: [String: String]? = nil) {
+            self.name = name
+            self.type = type
+            self.description = description
+            self.required = required
+            self.additionalProperties = additionalProperties
+        }
+    }
+}
+
 /// Service for defining, dispatching, and executing Claude API tools
 enum ToolService {
+
+    // MARK: - Tool Schema Definitions
+    
+    /// Provider-agnostic tool schemas.
+    /// These definitions are identical across all providers — only the format changes.
+    private static var toolSchemas: [ToolSchema] {
+        var schemas: [ToolSchema] = [
+            ToolSchema(
+                name: "get_datetime",
+                description: "Get the current date and time in the user's timezone (Eastern). Use this when you need to know what day or time it is.",
+                parameters: []  // No parameters
+            ),
+            
+            ToolSchema(
+                name: "web_lookup",
+                description: "Look up current information from trusted web sources. Use this for topics where a web source can provide current, reliable information. Specify the category to use a curated source, or use category 'search' for general web search.",
+                parameters: [
+                    .init(
+                        name: "category",
+                        type: "string",
+                        description: "The web tool category (e.g., 'weather', 'news', 'finance'). Use 'search' for general web search when no specific category fits.",
+                        required: true
+                    ),
+                    .init(
+                        name: "query",
+                        type: "string",
+                        description: "The user's question or search terms.",
+                        required: true
+                    ),
+                    .init(
+                        name: "parameters",
+                        type: "object",
+                        description: "Key-value pairs to fill URL placeholders (e.g., {\"lat\": \"39.27\", \"lon\": \"-76.73\", \"city\": \"Catonsville\"}).",
+                        required: false,
+                        additionalProperties: ["type": "string"]
+                    )
+                ]
+            )
+        ]
+        
+        // Conditionally include tools based on API key availability
+        if KeychainService.getTavilyKey() != nil {
+            schemas.append(
+                ToolSchema(
+                    name: "search_web",
+                    description: "Search the web for current information on any topic. Use this when you need up-to-date information about news, sports, current events, weather forecasts, or any topic that changes frequently. Don't deflect with 'I don't have real-time data' — use this tool.",
+                    parameters: [
+                        .init(
+                            name: "query",
+                            type: "string",
+                            description: "The search query. Be specific and include relevant context.",
+                            required: true
+                        )
+                    ]
+                )
+            )
+            
+            schemas.append(
+                ToolSchema(
+                    name: "get_weather",
+                    description: "Get current weather information for a specific location. Defaults to Catonsville, Maryland if no location specified.",
+                    parameters: [
+                        .init(
+                            name: "location",
+                            type: "string",
+                            description: "The location to get weather for (city, state, country). Leave empty for default location.",
+                            required: true
+                        )
+                    ]
+                )
+            )
+        }
+        
+        return schemas
+    }
+    
+    // MARK: - Claude API Format Conversion
+    
+    /// Convert tool schemas to Claude API format with input_schema.
+    /// For xAI fork: replace this with buildOpenAIParameters() that returns "parameters" instead of "input_schema".
+    private static func buildClaudeInputSchema(from parameters: [ToolSchema.ParameterSchema]) -> [String: Any] {
+        var properties: [String: Any] = [:]
+        var required: [String] = []
+        
+        for param in parameters {
+            var propertyDef: [String: Any] = [
+                "type": param.type,
+                "description": param.description
+            ]
+            
+            // Handle object type with additionalProperties
+            if param.type == "object", let additionalProps = param.additionalProperties {
+                propertyDef["additionalProperties"] = additionalProps
+            }
+            
+            properties[param.name] = propertyDef
+            
+            if param.required {
+                required.append(param.name)
+            }
+        }
+        
+        return [
+            "type": "object",
+            "properties": properties,
+            "required": required
+        ]
+    }
 
     // MARK: - Tool Definitions (JSON Schema for Claude API)
 
     /// Tool definitions array sent with every API request.
     /// Only includes tools whose API keys are available.
+    /// Format is Claude-specific (input_schema) — for xAI fork, change buildClaudeInputSchema() to buildOpenAIParameters().
     static var toolDefinitions: [[String: Any]] {
-        var tools: [[String: Any]] = [
+        toolSchemas.map { schema in
             [
-                "name": "get_datetime",
-                "description": "Get the current date and time in the user's timezone (Eastern). Use this when you need to know what day or time it is.",
-                "input_schema": [
-                    "type": "object",
-                    "properties": [String: Any](),
-                    "required": [String]()
-                ]
-            ],
-
-            // Web Tools: generic web lookup with source fallback chain
-            [
-                "name": "web_lookup",
-                "description": "Look up current information from trusted web sources. Use this for topics where a web source can provide current, reliable information. Specify the category to use a curated source, or use category 'search' for general web search.",
-                "input_schema": [
-                    "type": "object",
-                    "properties": [
-                        "category": [
-                            "type": "string",
-                            "description": "The web tool category (e.g., 'weather', 'news', 'finance'). Use 'search' for general web search when no specific category fits."
-                        ] as [String: Any],
-                        "query": [
-                            "type": "string",
-                            "description": "The user's question or search terms."
-                        ] as [String: Any],
-                        "parameters": [
-                            "type": "object",
-                            "description": "Key-value pairs to fill URL placeholders (e.g., {\"lat\": \"39.27\", \"lon\": \"-76.73\", \"city\": \"Catonsville\"}).",
-                            "additionalProperties": ["type": "string"]
-                        ] as [String: Any]
-                    ],
-                    "required": ["category", "query"]
-                ] as [String: Any]
+                "name": schema.name,
+                "description": schema.description,
+                "input_schema": buildClaudeInputSchema(from: schema.parameters)
             ]
-        ]
-
-        if KeychainService.getTavilyKey() != nil {
-            tools.append([
-                "name": "search_web",
-                "description": "Search the web for current information on any topic. Use this when you need up-to-date information about news, sports, current events, weather forecasts, or any topic that changes frequently. Don't deflect with 'I don't have real-time data' — use this tool.",
-                "input_schema": [
-                    "type": "object",
-                    "properties": [
-                        "query": [
-                            "type": "string",
-                            "description": "The search query. Be specific and include relevant context."
-                        ] as [String: Any]
-                    ],
-                    "required": ["query"]
-                ] as [String: Any]
-            ])
         }
-
-        if KeychainService.getTavilyKey() != nil {
-            tools.append([
-                "name": "get_weather",
-                "description": "Get current weather information for a specific location. Defaults to Catonsville, Maryland if no location specified.",
-                "input_schema": [
-                    "type": "object",
-                    "properties": [
-                        "location": [
-                            "type": "string",
-                            "description": "The location to get weather for (city, state, country). Leave empty for default location."
-                        ] as [String: Any]
-                    ],
-                    "required": ["location"]
-                ] as [String: Any]
-            ])
-        }
-
-        return tools
     }
 
     // MARK: - Tool Dispatch
@@ -442,11 +512,10 @@ enum ToolService {
         """
 
         do {
-            let (jsonText, extractionInputTokens, extractionOutputTokens) = try await claudeService.singleShot(
-                messages: [["role": "user", "content": extractionPrompt]],
-                model: .fast,
-                systemPrompt: "You extract structured data from text. Return only valid JSON.",
-                maxTokens: 1024
+            let (jsonText, extractionInputTokens, extractionOutputTokens) = try await ExtractionService.extractJSON(
+                prompt: extractionPrompt,
+                maxTokens: 1024,
+                claudeService: claudeService
             )
 
             // Step 3: Strip markdown fences and parse JSON into WeatherData

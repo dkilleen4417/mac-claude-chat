@@ -87,6 +87,8 @@ class ChatViewModel {
     }
     
     /// Default system prompt template (matches SettingsView's default)
+    /// PROVIDER-SPECIFIC: "You are Claude" identity string (line 92).
+    /// For xAI fork: Change to "You are Grok" or appropriate identity.
     private var defaultSystemPrompt: String {
         """
         You are Claude, an AI assistant in a natural conversation with Drew (Andrew Killeen), a retired engineer and programmer in Catonsville, Maryland.

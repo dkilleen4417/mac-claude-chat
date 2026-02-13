@@ -4,6 +4,10 @@
 //
 //  Created by Drew on 2/6/26.
 //
+//  PROVIDER-SPECIFIC CODE — Claude/Anthropic API client.
+//  For xAI fork: Rewrite this entire file as XAIService.swift.
+//  See Models.swift "Provider Configuration" comment block for complete fork checklist.
+//
 
 import Foundation
 

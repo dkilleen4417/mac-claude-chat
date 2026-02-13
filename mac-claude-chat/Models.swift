@@ -283,6 +283,51 @@ struct ChatInfo: Identifiable, Equatable {
     }
 }
 
+// MARK: - Provider Configuration
+//
+// PROVIDER-SPECIFIC CODE — FOR xAI FORK REFERENCE
+//
+// This enum and related code contain Claude/Anthropic-specific identifiers.
+// When forking for xAI, update the following:
+//
+// 1. MODEL IDENTIFIERS (this file, lines 289-291):
+//    - ClaudeModel enum → XAIModel enum
+//    - Model IDs: "claude-*" → "grok-*" (xAI model IDs)
+//    - Display names: "Haiku 4.5" → "Grok Beta", etc.
+//    - Pricing: Update inputCostPerMillion / outputCostPerMillion for xAI rates
+//
+// 2. API SERVICE (ClaudeService.swift):
+//    - Rename: ClaudeService → XAIService
+//    - Endpoint (line 88): "https://api.anthropic.com/v1/messages" → "https://api.x.ai/v1/chat/completions"
+//    - Auth header (line 133): "x-api-key" → "Authorization: Bearer {token}"
+//    - API version header (line 134): "anthropic-version" → remove (not used by xAI)
+//    - Beta headers (line 233): "anthropic-beta" → remove (xAI uses OpenAI-compatible format)
+//    - Request/response types (lines 12-82): Update for OpenAI-compatible format
+//    - Streaming format (lines 151-187): SSE events use OpenAI format (data: {...})
+//
+// 3. EXTRACTION SERVICE (ExtractionService.swift):
+//    - Parameter: claudeService → xaiService
+//    - Model: .turbo → grok-beta (or equivalent fast model)
+//    - Keep systemPrompt unchanged
+//
+// 4. TOOL SCHEMA FORMAT (ToolService.swift):
+//    - Rename: buildClaudeInputSchema() → buildOpenAIParameters()
+//    - Change "input_schema" key to "parameters" in toolDefinitions
+//    - Keep toolSchemas array unchanged (provider-agnostic)
+//
+// 5. SYSTEM PROMPT IDENTITY (ChatViewModel.swift, line 92):
+//    - "You are Claude" → "You are Grok" (or provider-appropriate identity)
+//
+// 6. KEYCHAIN SERVICE (KeychainService.swift):
+//    - getAPIKey() → rename to getClaudeAPIKey() for multi-provider support
+//    - Add getXAIAPIKey() for xAI credentials
+//    - Environment variable: ANTHROPIC_API_KEY → XAI_API_KEY
+//
+// All other code (MessageSendingService, RouterService, ToolService implementations,
+// UI components, data models) is provider-agnostic and requires no changes.
+//
+// Fork blast radius: 2 files (ClaudeService.swift + Models.swift) + ExtractionService.swift (~10 lines)
+
 // MARK: - Claude Model Configuration
 
 enum ClaudeModel: String, CaseIterable, Identifiable {
