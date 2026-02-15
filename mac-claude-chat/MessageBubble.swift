@@ -16,9 +16,8 @@ import UIKit
 
 struct MessageBubble: View {
     let message: Message
-    let turnGrade: Int  // The grade that applies to this turn (user's grade for both user and assistant)
-    let threshold: Int
-    let onGradeChange: (Int) -> Void
+    let isIncluded: Bool  // Whether this turn is included in context
+    let onToggleIncluded: (Bool) -> Void
     let onCopyTurn: () -> Void
     let onEditMessage: ((String) -> Void)?
 
@@ -27,16 +26,10 @@ struct MessageBubble: View {
     @State private var isEditing: Bool = false
     @State private var editText: String = ""
 
-    /// Computed opacity based on turn grade vs threshold
+    /// Computed opacity based on inclusion state
     /// Both user and assistant messages in a turn dim together
     private var dimOpacity: Double {
-        if turnGrade >= threshold {
-            return 1.0  // Full opacity - will be sent
-        } else if turnGrade == 0 {
-            return 0.2  // Heavily dimmed - grade 0
-        } else {
-            return 0.4  // Dimmed - excluded but not grade 0
-        }
+        isIncluded ? 1.0 : 0.3
     }
 
     /// Parse image data from markers in content
@@ -52,141 +45,120 @@ struct MessageBubble: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            if message.role == .user {
-                Spacer()
-
-                // Grade control for user messages — appears on hover
-                if isHovered {
-                    GradeControl(grade: message.textGrade, onGradeChange: onGradeChange)
-                        .transition(.opacity)
-                }
-            }
-
+        VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 0) {
             if message.role == .assistant {
-                Text("🧠")
-                    .font(.body)
-            }
-
-            if message.role == .assistant {
-                VStack(alignment: .leading, spacing: 4) {
-                    // Iceberg tip as response header
-                    if message.role == .assistant && !message.icebergTip.isEmpty {
-                        Text("🏔️ \(message.icebergTip)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .italic()
-                            .padding(.bottom, 4)
-                    }
-
-                    MarkdownMessageView(content: message.content)
-
-                    // Metadata footer: model, tokens, cost
-                    if message.role == .assistant && message.isFinalResponse {
-                        HStack(spacing: 4) {
-                            if let model = ClaudeModel(rawValue: message.modelUsed) {
-                                Text("\(model.emoji) \(model.displayName)")
-                            } else if !message.modelUsed.isEmpty {
-                                Text(message.modelUsed)
-                            }
-
-                            if message.inputTokens > 0 || message.outputTokens > 0 {
-                                if !message.modelUsed.isEmpty {
-                                    Text("•")
-                                }
-                                let totalTokens = message.inputTokens + message.outputTokens
-                                Text("\(totalTokens) tokens")
-
+                // Assistant message: sparkle icon + plain text
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: "sparkle")
+                        .font(.title3)
+                        .foregroundStyle(.blue)
+                        .frame(width: 24, height: 24)
+                    
+                    VStack(alignment: .leading, spacing: 8) {
+                        MarkdownMessageView(content: message.content)
+                        
+                        // Metadata footer — only on hover
+                        if isHovered && message.isFinalResponse {
+                            HStack(spacing: 4) {
                                 if let model = ClaudeModel(rawValue: message.modelUsed) {
+                                    Text(model.displayName)
+                                }
+                                if message.inputTokens > 0 || message.outputTokens > 0 {
                                     Text("•")
-                                    let inputCost = Double(message.inputTokens) / 1_000_000.0 * model.inputCostPerMillion
-                                    let outputCost = Double(message.outputTokens) / 1_000_000.0 * model.outputCostPerMillion
-                                    Text(String(format: "$%.4f", inputCost + outputCost))
+                                    let totalTokens = message.inputTokens + message.outputTokens
+                                    Text("\(totalTokens) tokens")
+                                    if let model = ClaudeModel(rawValue: message.modelUsed) {
+                                        Text("•")
+                                        let inputCost = Double(message.inputTokens) / 1_000_000.0 * model.inputCostPerMillion
+                                        let outputCost = Double(message.outputTokens) / 1_000_000.0 * model.outputCostPerMillion
+                                        Text(String(format: "$%.4f", inputCost + outputCost))
+                                    }
                                 }
                             }
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                            .transition(.opacity)
                         }
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .padding(.top, 4)
                     }
+                    
+                    Spacer(minLength: 60)
                 }
             } else {
-                // User message with potential images
-                if isEditing {
-                    VStack(alignment: .trailing, spacing: 6) {
-                        TextEditor(text: $editText)
-                            .font(.body)
-                            .scrollContentBackground(.hidden)
-                            .padding(8)
-                            .frame(minHeight: 60, maxHeight: 200)
-                            .background(Color.gray.opacity(0.1))
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(Color.blue.opacity(0.5), lineWidth: 1)
-                            )
+                // User message: bubble on right, context toggle on left
+                HStack(alignment: .top, spacing: 8) {
+                    Spacer(minLength: 60)
+                    
+                    // Context toggle
+                    ContextToggle(isIncluded: isIncluded, onToggle: onToggleIncluded)
+                        .frame(height: 22, alignment: .center)
+                    
+                    if isEditing {
+                        VStack(alignment: .trailing, spacing: 6) {
+                            TextEditor(text: $editText)
+                                .font(.body)
+                                .scrollContentBackground(.hidden)
+                                .padding(10)
+                                .frame(minHeight: 60, maxHeight: 200)
+                                .background(Color.gray.opacity(0.12))
+                                .clipShape(RoundedRectangle(cornerRadius: 18))
 
-                        HStack(spacing: 8) {
-                            if message.isEdited {
-                                Text("edited")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                                    .italic()
-                            }
-                            Spacer()
-                            Button("Cancel") {
-                                isEditing = false
-                                editText = ""
-                            }
-                            .buttonStyle(.plain)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-
-                            Button("Save") {
-                                let trimmed = editText.trimmingCharacters(in: .whitespacesAndNewlines)
-                                if !trimmed.isEmpty {
-                                    onEditMessage?(trimmed)
+                            HStack(spacing: 8) {
+                                if message.isEdited {
+                                    Text("edited")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .italic()
                                 }
-                                isEditing = false
-                                editText = ""
+                                Spacer()
+                                Button("Cancel") {
+                                    isEditing = false
+                                    editText = ""
+                                }
+                                .buttonStyle(.plain)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+
+                                Button("Save") {
+                                    let trimmed = editText.trimmingCharacters(in: .whitespacesAndNewlines)
+                                    if !trimmed.isEmpty {
+                                        onEditMessage?(trimmed)
+                                    }
+                                    isEditing = false
+                                    editText = ""
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .controlSize(.small)
+                                .disabled(editText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                             }
-                            .buttonStyle(.borderedProminent)
-                            .controlSize(.small)
-                            .disabled(editText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         }
-                    }
-                } else {
-                    VStack(alignment: .trailing, spacing: 2) {
+                    } else {
+                        // User message in bubble with squared top-right corner
                         UserMessageContent(
                             images: parsedImages,
                             text: cleanedContent,
                             expandedImageId: $expandedImageId
                         )
-                        if message.isEdited {
-                            Text("edited")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                                .italic()
-                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(Color(.systemGray).opacity(0.15))
+                        .clipShape(
+                            UnevenRoundedRectangle(
+                                topLeadingRadius: 20,
+                                bottomLeadingRadius: 20,
+                                bottomTrailingRadius: 20,
+                                topTrailingRadius: 4
+                            )
+                        )
                     }
                 }
             }
-
-            if message.role == .user {
-                Text("😎")
-                    .font(.body)
-            }
-
-            if message.role == .assistant {
-                Spacer()
-            }
         }
+        .padding(.vertical, 8)
         .opacity(dimOpacity)
         .animation(.easeInOut(duration: 0.15), value: dimOpacity)
+        .animation(.easeInOut(duration: 0.15), value: isHovered)
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.15)) {
-                isHovered = hovering
-            }
+            isHovered = hovering
         }
         .contextMenu {
             Button("Copy Message") {

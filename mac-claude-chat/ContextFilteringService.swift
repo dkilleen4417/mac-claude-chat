@@ -13,20 +13,18 @@ enum ContextFilteringService {
 
     // MARK: - Filtered Messages for API
 
-    /// Gets messages filtered by grade threshold for API calls.
-    /// Turns are user+assistant pairs; if user message's textGrade < threshold,
+    /// Gets messages filtered by inclusion state for API calls.
+    /// Turns are user+assistant pairs; if user message's textGrade == 0,
     /// the whole turn is excluded. Intermediate tool messages (isFinalResponse == false)
     /// are always excluded.
     ///
     /// - Parameters:
     ///   - chatId: The chat session to filter messages for.
-    ///   - threshold: Minimum textGrade required for inclusion (0-5).
     ///   - excludingLast: If true, excludes the last message (the one just sent).
     ///   - dataService: SwiftDataService for fetching messages with grades.
-    /// - Returns: Array of Messages that pass the grade filter.
+    /// - Returns: Array of Messages that are included in context.
     static func getFilteredMessages(
         forChat chatId: String,
-        threshold: Int,
         excludingLast: Bool,
         dataService: SwiftDataService
     ) async -> [Message] {
@@ -47,8 +45,8 @@ enum ContextFilteringService {
                 }
 
                 if item.message.role == .user {
-                    // Check if this user message meets threshold
-                    if item.textGrade >= threshold {
+                    // Check if this user message is included (textGrade > 0)
+                    if item.textGrade > 0 {
                         // Include user message
                         filtered.append(item.message)
                         // Include following assistant message if it's a final response and present

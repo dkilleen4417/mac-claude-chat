@@ -247,7 +247,9 @@ struct ModelsSettingsTab: View {
                                     .tag(model.rawValue)
                                 }
                             }
+                            #if os(macOS)
                             .pickerStyle(.radioGroup)
+                            #endif
                             .labelsHidden()
                         }
                         .padding(.top, 8)

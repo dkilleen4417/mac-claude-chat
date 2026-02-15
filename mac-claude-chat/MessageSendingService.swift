@@ -40,7 +40,6 @@ enum MessageSendingService {
     ///   - turnId: UUID string for this conversation turn.
     ///   - assistantMessageId: Pre-generated UUID for the assistant's reply.
     ///   - chatId: The chat session ID.
-    ///   - threshold: Context grade threshold at send time.
     ///   - messages: Current in-memory messages (for router tip collection).
     ///   - systemPrompt: The full system prompt string.
     ///   - parseResult: The slash command parse result (for model override detection).
@@ -55,7 +54,6 @@ enum MessageSendingService {
         turnId: String,
         assistantMessageId: UUID,
         chatId: String,
-        threshold: Int,
         messages: [Message],
         systemPrompt: String,
         parseResult: SlashParseResult,
@@ -110,7 +108,6 @@ enum MessageSendingService {
         // --- Build filtered conversation history ---
         let filteredMessages = await ContextFilteringService.getFilteredMessages(
             forChat: chatId,
-            threshold: threshold,
             excludingLast: true,
             dataService: dataService
         )

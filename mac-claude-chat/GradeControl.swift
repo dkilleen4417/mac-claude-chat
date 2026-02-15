@@ -7,34 +7,21 @@
 
 import SwiftUI
 
-// MARK: - Grade Control View
+// MARK: - Context Toggle View
 
-struct GradeControl: View {
-    let grade: Int
-    let onGradeChange: (Int) -> Void
+struct ContextToggle: View {
+    let isIncluded: Bool
+    let onToggle: (Bool) -> Void
 
     var body: some View {
-        HStack(spacing: 2) {
-            ForEach(0...5, id: \.self) { value in
-                Button {
-                    onGradeChange(value)
-                } label: {
-                    Circle()
-                        .fill(value <= grade ? Color.blue : Color.gray.opacity(0.3))
-                        .frame(width: 8, height: 8)
-                }
-                .buttonStyle(.plain)
-            }
-
-            Text("\(grade)")
-                .font(.caption2.monospacedDigit())
-                .foregroundStyle(.secondary)
-                .frame(minWidth: 12)
+        Button {
+            onToggle(!isIncluded)
+        } label: {
+            Circle()
+                .fill(isIncluded ? Color.primary : Color.gray.opacity(0.3))
+                .frame(width: 10, height: 10)
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 4)
-        .background(Color.gray.opacity(0.1))
-        .clipShape(Capsule())
-        .help("Grade: \(grade) — click dots to change")
+        .buttonStyle(.plain)
+        .help(isIncluded ? "Included in context — click to exclude" : "Excluded from context — click to include")
     }
 }

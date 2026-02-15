@@ -48,10 +48,20 @@
 		3A2B388A2F3D662D00E744D7 /* ImageAttachmentManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageAttachmentManager.swift; sourceTree = "<group>"; };
 		3A2B388E2F3D68FB00E744D7 /* MessageSendingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageSendingService.swift; sourceTree = "<group>"; };
 		3A2B38922F3D9C5600E744D7 /* ChatViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatViewModel.swift; sourceTree = "<group>"; };
-		3AE4CD552F34683C002EBE7F /* mac-claude-chat.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = "mac-claude-chat.app"; path = "Claude Chat.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		3AE4CD552F34683C002EBE7F /* Claude Chat.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Claude Chat.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		3AE4CD622F34683D002EBE7F /* mac-claude-chatTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; name = "mac-claude-chatTests.xctest"; path = "Claude Chat.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		3AE4CD6C2F34683D002EBE7F /* mac-claude-chatUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; name = "mac-claude-chatUITests.xctest"; path = "Claude Chat.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		3AC1697F2F3FF93300146A3C /* Exceptions for "mac-claude-chat" folder in "mac-claude-chat" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 3AE4CD542F34683C002EBE7F /* mac-claude-chat */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		3A2B381A2F3CB5BD00E744D7 /* Router​Eval */ = {
@@ -61,6 +71,9 @@
 		};
 		3AE4CD572F34683C002EBE7F /* mac-claude-chat */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				3AC1697F2F3FF93300146A3C /* Exceptions for "mac-claude-chat" folder in "mac-claude-chat" target */,
+			);
 			path = "mac-claude-chat";
 			sourceTree = "<group>";
 		};
@@ -127,7 +140,7 @@
 		3AE4CD562F34683C002EBE7F /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				3AE4CD552F34683C002EBE7F /* mac-claude-chat.app */,
+				3AE4CD552F34683C002EBE7F /* Claude Chat.app */,
 				3AE4CD622F34683D002EBE7F /* mac-claude-chatTests.xctest */,
 				3AE4CD6C2F34683D002EBE7F /* mac-claude-chatUITests.xctest */,
 				3A2B38192F3CB5BD00E744D7 /* Router​Eval */,
@@ -186,7 +199,7 @@
 			packageProductDependencies = (
 			);
 			productName = "mac-claude-chat";
-			productReference = 3AE4CD552F34683C002EBE7F /* mac-claude-chat.app */;
+			productReference = 3AE4CD552F34683C002EBE7F /* Claude Chat.app */;
 			productType = "com.apple.product-type.application";
 		};
 		3AE4CD612F34683D002EBE7F /* mac-claude-chatTests */ = {
@@ -517,7 +530,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 20260213;
 				DEVELOPMENT_TEAM = N4LNUFU7CU;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -540,13 +553,14 @@
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.3;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MACOSX_DEPLOYMENT_TARGET = 26.3;
+				MARKETING_VERSION = 1.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "JCC.mac-claude-chat";
 				PRODUCT_NAME = "Claude Chat";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -572,7 +586,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 20260213;
 				DEVELOPMENT_TEAM = N4LNUFU7CU;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -595,13 +609,14 @@
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.3;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MACOSX_DEPLOYMENT_TARGET = 26.3;
+				MARKETING_VERSION = 1.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "JCC.mac-claude-chat";
 				PRODUCT_NAME = "Claude Chat";
 				PROVISIONING_PROFILE_SPECIFIER = "";

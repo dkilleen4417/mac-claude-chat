@@ -38,11 +38,7 @@ struct UserMessageContent: View {
             // Render text if present
             if !text.isEmpty {
                 Text(text)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(Color.accentColor.opacity(0.15))
                     .foregroundColor(.primary)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
                     .textSelection(.enabled)
             }
         }

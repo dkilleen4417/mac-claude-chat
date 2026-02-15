@@ -44,7 +44,6 @@ class ChatViewModel {
     var showUnderConstruction: Bool = false
     var pendingImages: [PendingImage] = []
     var showingImagePicker: Bool = false
-    var contextThreshold: Int = 0
     var showingTokenAudit: Bool = false
     var isClearing: Bool = false
 
@@ -342,7 +341,6 @@ class ChatViewModel {
                 totalOutputTokens = 0
             }
 
-            contextThreshold = dataService.getContextThreshold(forChat: chatId)
             errorMessage = nil
         } catch {
             errorMessage = "Failed to load chat: \(error.localizedDescription)"
@@ -351,16 +349,6 @@ class ChatViewModel {
     }
 
     // MARK: - Context Management
-
-    func updateContextThreshold(_ newValue: Int) {
-        guard let chatId = selectedChat else { return }
-
-        do {
-            try dataService.setContextThreshold(forChat: chatId, threshold: newValue)
-        } catch {
-            errorMessage = "Failed to update threshold: \(error.localizedDescription)"
-        }
-    }
 
     func confirmBulkGrade(grade: Int) {
         guard let chatId = selectedChat else { return }
@@ -670,7 +658,6 @@ class ChatViewModel {
         let persistedContent = markerPrefix + trimmedText
 
         let imagesToSend = pendingImages
-        let sendThreshold = contextThreshold
         let turnId = UUID().uuidString
         let assistantMessageId = UUID()
 
@@ -707,7 +694,6 @@ class ChatViewModel {
                     turnId: turnId,
                     assistantMessageId: assistantMessageId,
                     chatId: chatId,
-                    threshold: sendThreshold,
                     messages: messages,
                     systemPrompt: systemPrompt,
                     parseResult: parseResult,

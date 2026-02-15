@@ -17,7 +17,11 @@ import AppKit
 struct ContentView: View {
     @State private var viewModel = ChatViewModel()
     @Environment(\.modelContext) private var modelContext
+    #if os(macOS)
     @Environment(\.openSettings) private var openSettings
+    #else
+    @State private var showingSettings = false
+    #endif
 
     var body: some View {
         NavigationSplitView {
@@ -107,6 +111,22 @@ struct ContentView: View {
         .sheet(isPresented: $viewModel.showingTokenAudit) {
             TokenAuditView(messages: viewModel.messages, model: viewModel.selectedModel)
         }
+        #if !os(macOS)
+        .sheet(isPresented: $showingSettings) {
+            NavigationStack {
+                SettingsView()
+                    .navigationTitle("Settings")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") {
+                                showingSettings = false
+                            }
+                        }
+                    }
+            }
+        }
+        #endif
         .task {
             if !viewModel.claudeService.hasAPIKey {
                 viewModel.needsAPIKey = true
@@ -114,6 +134,11 @@ struct ContentView: View {
                 // Open Settings window if API key is missing
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     openSettings()
+                }
+                #else
+                // Open Settings sheet if API key is missing
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    showingSettings = true
                 }
                 #endif
             }
@@ -129,6 +154,15 @@ struct ContentView: View {
                     .font(.headline)
 
                 Spacer()
+
+                #if !os(macOS)
+                Button(action: {
+                    showingSettings = true
+                }) {
+                    Image(systemName: "gear")
+                }
+                .buttonStyle(.borderless)
+                #endif
 
                 Button(action: {
                     viewModel.showingNewChatDialog = true
@@ -243,32 +277,33 @@ struct ContentView: View {
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                         } else {
                             ForEach(Array(viewModel.messages.enumerated()), id: \.element.id) { index, message in
-                                let turnGrade: Int = {
+                                // Determine if this turn is included in context
+                                let isIncluded: Bool = {
                                     if message.role == .user {
-                                        return message.textGrade
+                                        return message.textGrade > 0
                                     } else {
+                                        // For assistant messages, check the paired user message
                                         if !message.turnId.isEmpty {
                                             if let userMsg = viewModel.messages.first(where: { $0.turnId == message.turnId && $0.role == .user }) {
-                                                return userMsg.textGrade
+                                                return userMsg.textGrade > 0
                                             }
                                         }
                                         let currentMessages = viewModel.messages
-                                        guard index < currentMessages.count else { return message.textGrade }
+                                        guard index < currentMessages.count else { return message.textGrade > 0 }
                                         for i in stride(from: index - 1, through: 0, by: -1) {
                                             if currentMessages[i].role == .user {
-                                                return currentMessages[i].textGrade
+                                                return currentMessages[i].textGrade > 0
                                             }
                                         }
-                                        return message.textGrade
+                                        return message.textGrade > 0
                                     }
                                 }()
 
                                 MessageBubble(
                                     message: message,
-                                    turnGrade: turnGrade,
-                                    threshold: viewModel.contextThreshold,
-                                    onGradeChange: { newGrade in
-                                        viewModel.updateMessageGrade(messageId: message.id, grade: newGrade)
+                                    isIncluded: isIncluded,
+                                    onToggleIncluded: { included in
+                                        viewModel.updateMessageGrade(messageId: message.id, grade: included ? 5 : 0)
                                     },
                                     onCopyTurn: {
                                         viewModel.copyTurn(for: message)
@@ -281,14 +316,17 @@ struct ContentView: View {
                             }
 
                             if let streamingId = viewModel.streamingMessageId, !viewModel.streamingContent.isEmpty {
-                                HStack(alignment: .top, spacing: 8) {
-                                    Text("🧠")
-                                        .font(.body)
+                                HStack(alignment: .top, spacing: 12) {
+                                    Image(systemName: "sparkle")
+                                        .font(.title3)
+                                        .foregroundStyle(.blue)
+                                        .frame(width: 24, height: 24)
 
                                     MarkdownMessageView(content: viewModel.streamingContent)
 
-                                    Spacer()
+                                    Spacer(minLength: 60)
                                 }
+                                .padding(.vertical, 8)
                                 .id(streamingId)
                             }
 
@@ -370,15 +408,13 @@ struct ContentView: View {
             // Status bar
             VStack(spacing: 4) {
                 HStack {
-                    Button {
-                        viewModel.showingTokenAudit = true
-                    } label: {
-                        Text("\(viewModel.totalInputTokens + viewModel.totalOutputTokens) tokens")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .help("View per-turn token audit")
+                    Text("\(viewModel.totalInputTokens + viewModel.totalOutputTokens) tokens")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .onTapGesture {
+                            viewModel.showingTokenAudit = true
+                        }
+                        .help("View per-turn token audit")
 
                     Text("•")
                         .font(.caption)
@@ -388,38 +424,22 @@ struct ContentView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
-                    Text("•")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    Button {
-                        let newValue = (viewModel.contextThreshold + 1) % 6
-                        viewModel.contextThreshold = newValue
-                        viewModel.updateContextThreshold(newValue)
-                    } label: {
-                        Text("Context: \(viewModel.contextThreshold)")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(viewModel.contextThreshold > 0 ? .blue : .secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Tap to cycle threshold (0-5). Turns with grade < \(viewModel.contextThreshold) are excluded from context.")
-
                     Spacer()
 
                     Menu {
-                        Button("Grade All 5 (Full Context)") {
+                        Button("Include All") {
                             viewModel.confirmBulkGrade(grade: 5)
                         }
-                        Button("Grade All 0 (Clear Context)") {
+                        Button("Exclude All") {
                             viewModel.confirmBulkGrade(grade: 0)
                         }
                     } label: {
-                        Image(systemName: "slider.horizontal.3")
+                        Image(systemName: "checklist")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                     .menuStyle(.borderlessButton)
-                    .help("Bulk grade actions")
+                    .help("Bulk context actions")
 
                     Button("Clear Chat") {
                         viewModel.clearCurrentChat()
