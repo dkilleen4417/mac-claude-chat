@@ -71,15 +71,16 @@ mac-claude-chat/
 ├── WebFetchService.swift              (9.9 KB)  HTTP fetch, HTML-to-text, URL resolution, fallback chains
 │
 │   ── Message Rendering ──
-├── MessageBubble.swift                (8.4 KB)  Message row + hover grade controls + dimming + metadata
+├── MessageBubble.swift                (8.0 KB)  Clean message layout: sparkle icon for assistant,
+│                                                rounded bubble for user, context toggle, hover metadata
 ├── MarkdownMessageView.swift          (5.6 KB)  Markdown parsing, weather cards, code block dispatch
 ├── CodeBlockView.swift                (5.3 KB)  Fenced code + line numbers + copy button
 ├── SyntaxHighlighter.swift           (16.3 KB)  Regex tokenizer, Dracula palette
 ├── WeatherCardView.swift              (8.5 KB)  Gradient weather card with hourly forecast,
 │                                                dual city-labeled datetime display
-├── UserMessageContent.swift           (1.6 KB)  User message with images + text
+├── UserMessageContent.swift           (1.4 KB)  User message with images + text (no styling)
 ├── MessageImageView.swift             (1.8 KB)  Base64 image with expand/collapse
-├── GradeControl.swift                 (1.0 KB)  0-5 dot grade picker
+├── GradeControl.swift                 (0.8 KB)  Binary context toggle (ContextToggle view)
 ├── PendingImageThumbnail.swift        (1.4 KB)  Pre-send image preview
 │
 │   ── Utilities ──
@@ -108,6 +109,9 @@ Entitlements:
 - NotificationCenter bridges macOS menu commands → view state
 - No external dependencies — Apple frameworks + direct HTTP only
 - Always `python3`, never `python`
+- **Cross-platform:** Supports macOS, iOS, iPadOS. Platform-specific code
+  wrapped in `#if os(macOS)` / `#if !os(macOS)`. iOS uses gear button in
+  sidebar for Settings access (no menu bar).
 
 ---
 
@@ -147,8 +151,8 @@ All state and business logic lives in ChatViewModel and extracted services:
   (one-line summary, ~20 words). Tips are stripped from display, stored on
   `ChatMessage.icebergTip`, and fed to the router as lightweight conversation
   context instead of full history.
-- **Metadata footer:** Each assistant message displays model used, token count,
-  and cost in caption-style text below the response.
+- **Metadata footer:** Assistant messages show model, token count, and cost
+  on hover only (clean UI by default).
 - **Per-message model tracking:** `ChatMessage.modelUsed` stores the model's
   raw enum value. Cost calculation sums actual per-message costs.
 
@@ -195,12 +199,14 @@ Cache invalidates naturally when messages change.
 
 ### Context Management
 
-- **Grade system:** Each user message has a `textGrade` (0-5, default 5).
-  Each chat session has a `contextThreshold` (0-5, default 0).
-- **Turn filtering:** Messages with `textGrade < threshold` are excluded from
-  API payloads as complete turns (user + assistant pair).
-- **Visual dimming:** Messages below threshold are dimmed in the UI.
-- **Bulk actions:** "Grade All 5" and "Grade All 0" for quick context control.
+- **Binary toggle:** Each user message has a `textGrade` interpreted as boolean
+  (0 = excluded, >0 = included). No threshold — just in or out.
+- **Turn filtering:** Messages with `textGrade == 0` are excluded from API
+  payloads as complete turns (user + assistant pair).
+- **Visual dimming:** Excluded messages shown at 30% opacity.
+- **Bulk actions:** "Include All" and "Exclude All" for quick context control.
+- **ContextToggle:** Small circle (black = included, gray = excluded) appears
+  next to user messages. Always visible on iOS, hover-only on macOS.
 
 ---
 
