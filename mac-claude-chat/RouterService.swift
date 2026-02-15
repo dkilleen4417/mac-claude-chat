@@ -18,22 +18,22 @@ enum RouterService {
         and conversation arc provided.
 
         HAIKU — Greetings, questions, casual chat, acknowledgments, follow-ups, \
-        emotional support, small talk, advice, planning, weather queries, \
-        tool-using queries, opinions, preferences, everyday conversation, \
-        simple explanations, simple code questions, short creative writing, \
-        factual lookups, recommendations, scheduling, reminders, \
-        anything that can be answered well without deep multi-step reasoning.
+        emotional support, small talk, advice, planning, opinions, preferences, \
+        everyday conversation, simple explanations, simple code questions, \
+        short creative writing, factual lookups, recommendations, scheduling, \
+        reminders, anything that can be answered well without deep multi-step \
+        reasoning and without using external tools.
 
-        SONNET — Complex multi-step reasoning, writing or debugging substantial code, \
-        detailed document analysis, extended creative writing requiring craft, \
-        comparative analysis across multiple dimensions, technical architecture, \
-        research synthesis from multiple sources, anything requiring careful \
-        structured thought across multiple paragraphs.
+        SONNET — Weather queries, web search queries, any request requiring \
+        tool use, complex multi-step reasoning, writing or debugging substantial \
+        code, detailed document analysis, extended creative writing requiring \
+        craft, comparative analysis across multiple dimensions, technical \
+        architecture, research synthesis from multiple sources, anything \
+        requiring careful structured thought across multiple paragraphs.
 
         When in doubt between HAIKU and SONNET, choose HAIKU.
         Most messages should be HAIKU — SONNET is for tasks that genuinely \
-        require deeper reasoning. If a short, direct answer would satisfy \
-        the user, choose HAIKU.
+        require deeper reasoning OR that require using tools (weather, search, etc).
 
         Do NOT classify as OPUS. The OPUS tier is not available for \
         automatic routing.

@@ -426,21 +426,6 @@ struct ContentView: View {
 
                     Spacer()
 
-                    Menu {
-                        Button("Include All") {
-                            viewModel.confirmBulkGrade(grade: 5)
-                        }
-                        Button("Exclude All") {
-                            viewModel.confirmBulkGrade(grade: 0)
-                        }
-                    } label: {
-                        Image(systemName: "checklist")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    .menuStyle(.borderlessButton)
-                    .help("Bulk context actions")
-
                     Button("Clear Chat") {
                         viewModel.clearCurrentChat()
                     }

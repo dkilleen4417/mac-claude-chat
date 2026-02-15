@@ -350,17 +350,6 @@ class ChatViewModel {
 
     // MARK: - Context Management
 
-    func confirmBulkGrade(grade: Int) {
-        guard let chatId = selectedChat else { return }
-
-        do {
-            try dataService.setAllGrades(forChat: chatId, textGrade: grade, imageGrade: grade)
-            loadChat(chatId: chatId)
-        } catch {
-            errorMessage = "Failed to update grades: \(error.localizedDescription)"
-        }
-    }
-
     func updateMessageGrade(messageId: UUID, grade: Int) {
         do {
             try dataService.setTextGrade(forMessageId: messageId.uuidString, grade: grade)

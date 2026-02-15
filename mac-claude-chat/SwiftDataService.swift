@@ -304,27 +304,6 @@ class SwiftDataService {
         try modelContext.save()
     }
     
-    /// Updates grades for all messages in a chat (bulk action)
-    func setAllGrades(forChat chatId: String, textGrade: Int, imageGrade: Int) throws {
-        let descriptor = FetchDescriptor<ChatSession>(
-            predicate: #Predicate { $0.chatId == chatId }
-        )
-        
-        guard let session = try modelContext.fetch(descriptor).first else {
-            return
-        }
-        
-        let clampedTextGrade = max(0, min(5, textGrade))
-        let clampedImageGrade = max(0, min(5, imageGrade))
-        
-        for message in session.safeMessages where message.role == "user" {
-            message.textGrade = clampedTextGrade
-            message.imageGrade = clampedImageGrade
-        }
-        
-        try modelContext.save()
-    }
-    
     func clearMessages(forChat chatId: String) throws {
         let backgroundContext = ModelContext(modelContainer)
         let descriptor = FetchDescriptor<ChatSession>(

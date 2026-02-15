@@ -146,6 +146,8 @@ All state and business logic lives in ChatViewModel and extracted services:
   `singleShot` call (RouterService) into HAIKU/SONNET tier. Opus is only
   available via `/opus` slash command. No manual model selector — user steers
   the router through natural language.
+- **Tool-using queries route to Sonnet:** Weather queries, web searches, and
+  any request requiring tool use are routed to Sonnet for reliable tool calling.
 - **Confidence escalation:** If router confidence < 0.8, tier bumps up one level.
 - **Iceberg tips:** Each assistant response generates a `<!--tip:...-->` marker
   (one-line summary, ~20 words). Tips are stripped from display, stored on
@@ -204,7 +206,6 @@ Cache invalidates naturally when messages change.
 - **Turn filtering:** Messages with `textGrade == 0` are excluded from API
   payloads as complete turns (user + assistant pair).
 - **Visual dimming:** Excluded messages shown at 30% opacity.
-- **Bulk actions:** "Include All" and "Exclude All" for quick context control.
 - **ContextToggle:** Small circle (black = included, gray = excluded) appears
   next to user messages. Always visible on iOS, hover-only on macOS.
 

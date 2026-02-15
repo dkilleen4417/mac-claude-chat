@@ -218,7 +218,7 @@ struct GeneralSettingsTab: View {
 
 struct ModelsSettingsTab: View {
     @AppStorage("routerEnabled") private var routerEnabled: Bool = true
-    @AppStorage("fixedModel") private var fixedModel: String = ClaudeModel.fast.rawValue
+    @AppStorage("fixedModel") private var fixedModel: String = ClaudeModel.turbo.rawValue
     
     var body: some View {
         Form {

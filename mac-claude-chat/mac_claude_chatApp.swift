@@ -12,6 +12,16 @@ import SwiftData
 struct mac_claude_chatApp: App {
     @AppStorage("appearanceMode") private var appearanceMode: String = AppearanceMode.system.rawValue
     
+    init() {
+        // One-time migration: reset model settings to new defaults
+        let migrationKey = "modelSettingsMigrated_v1"
+        if !UserDefaults.standard.bool(forKey: migrationKey) {
+            UserDefaults.standard.set(true, forKey: "routerEnabled")
+            UserDefaults.standard.set(ClaudeModel.turbo.rawValue, forKey: "fixedModel")
+            UserDefaults.standard.set(true, forKey: migrationKey)
+        }
+    }
+    
     var body: some Scene {
         WindowGroup(" ") {
             ContentView()

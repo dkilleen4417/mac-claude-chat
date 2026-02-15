@@ -98,8 +98,8 @@ enum MessageSendingService {
                 routerOutputTokens = classification.outputTokens
                 print("🤖 Router: \(effectiveModel.displayName) (confidence: \(classification.response.confidence))")
             } else {
-                // Router disabled: use fixed model
-                effectiveModel = ClaudeModel(rawValue: storedModel ?? ClaudeModel.fast.rawValue) ?? .fast
+                // Router disabled: use fixed model (default to Haiku)
+                effectiveModel = ClaudeModel(rawValue: storedModel ?? ClaudeModel.turbo.rawValue) ?? .turbo
                 messageText = originalText
                 print("🤖 Fixed model: \(effectiveModel.displayName)")
             }
